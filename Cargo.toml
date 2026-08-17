@@ -1,0 +1,15 @@
+[package]
+name = "slatedb-cloudflare"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worker = "=0.8.5"
+
+[profile.release]
+lto = true
+codegen-units = 1

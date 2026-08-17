@@ -1,0 +1,17 @@
+{
+  "name": "slatedb-cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "check": "cargo check && cargo clippy --all-targets -- -D warnings",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "format": "cargo fmt --all",
+    "format:check": "cargo fmt --all -- --check"
+  },
+  "devDependencies": {
+    "wrangler": "4.123.0"
+  }
+}
+

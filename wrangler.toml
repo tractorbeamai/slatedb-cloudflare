@@ -1,0 +1,20 @@
+name = "slatedb-cloudflare"
+main = "build/worker/shim.mjs"
+compatibility_date = "2026-08-17"
+
+[build]
+command = "cargo install -q worker-build --version 0.8.5 && worker-build --release"
+
+[[rules]]
+globs = ["**/*.wasm"]
+type = "CompiledWasm"
+fallthrough = false
+
+[durable_objects]
+bindings = [
+  { name = "COUNTER", class_name = "Counter" },
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["Counter"]
