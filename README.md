@@ -5,8 +5,8 @@ A Rust Cloudflare Worker with a Rust Durable Object.
 ## Development
 
 ```sh
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 Then try the Worker and its named Durable Object:
@@ -22,10 +22,9 @@ Object storage. Different names address different objects.
 ## Checks and deployment
 
 ```sh
-npm run format:check
-npm run check
-npm run build
-npx wrangler login
-npm run deploy
+bun run format:check
+bun run check
+bun run build
+bunx wrangler login
+bun run deploy
 ```
-

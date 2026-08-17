@@ -2,6 +2,7 @@
   "name": "slatedb-cloudflare",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "bun@1.3.14",
   "scripts": {
     "build": "wrangler deploy --dry-run --outdir dist",
     "check": "cargo check && cargo clippy --all-targets -- -D warnings",
@@ -14,4 +15,3 @@
     "wrangler": "4.123.0"
   }
 }
-
