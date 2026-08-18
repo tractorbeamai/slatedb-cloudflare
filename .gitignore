@@ -1,8 +1,8 @@
-/build/
+build/
 /node_modules/
-/target/
-/vendor/
-/.wrangler/
+target/
+vendor/
+.wrangler/
 .dev.vars
 .dev.vars.*
 !.dev.vars.example

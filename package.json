@@ -1,20 +1,16 @@
 {
-  "name": "slatedb-cloudflare-feasibility",
+  "name": "slatedb-cloudflare",
   "version": "0.1.0",
   "license": "Apache-2.0",
   "private": true,
   "packageManager": "bun@1.3.14",
+  "workspaces": [
+    "durable-object",
+    "container"
+  ],
   "scripts": {
-    "benchmark": "bun scripts/benchmark.ts",
-    "build": "wrangler deploy --dry-run",
-    "check": "bash scripts/prepare-vendor.sh && cargo check --target wasm32-unknown-unknown && cargo test && cargo clippy --all-targets --no-deps -- -D warnings",
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "format": "cargo fmt --all",
-    "format:check": "cargo fmt --all -- --check",
-    "smoke": "bash scripts/smoke.sh"
-  },
-  "devDependencies": {
-    "wrangler": "4.123.0"
+    "check": "bun run --cwd durable-object check && bun run --cwd container check",
+    "format": "bun run --cwd durable-object format && bun run --cwd container format",
+    "format:check": "bun run --cwd durable-object format:check && bun run --cwd container format:check"
   }
 }

@@ -98,6 +98,7 @@ struct OkResponse {
 
 #[derive(Debug, Serialize)]
 struct StatusResponse {
+    runtime: &'static str,
     open: bool,
     cache_populated: bool,
     cache_storage_bytes: usize,
@@ -401,6 +402,7 @@ impl SlateDbObject {
                     .unwrap_or_else(|| (false, Vec::new()));
                 let cache_populated = self.cache.is_populated().await?;
                 Response::from_json(&StatusResponse {
+                    runtime: "durable-object",
                     open,
                     cache_populated,
                     cache_storage_bytes: self.cache.database_size(),

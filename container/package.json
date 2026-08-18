@@ -1,0 +1,24 @@
+{
+  "name": "@slatedb-cloudflare/container",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "scripts": {
+    "benchmark": "bun ../scripts/benchmark.ts",
+    "build": "wrangler deploy --dry-run",
+    "check": "cargo check --locked && cargo test --locked && cargo clippy --all-targets --locked -- -D warnings && wrangler types worker-configuration.d.ts --include-runtime false --check && tsc --noEmit && wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "format": "cargo fmt",
+    "format:check": "cargo fmt -- --check",
+    "smoke": "bash ../scripts/smoke.sh"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "0.3.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260818.1",
+    "typescript": "5.9.3",
+    "wrangler": "4.123.0"
+  }
+}

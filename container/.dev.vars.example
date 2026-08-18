@@ -1,0 +1,4 @@
+PROBE_TOKEN=replace-with-a-local-token
+R2_ACCOUNT_ID=replace-with-your-account-id
+R2_ACCESS_KEY_ID=replace-with-an-r2-access-key-id
+R2_SECRET_ACCESS_KEY=replace-with-an-r2-secret-access-key

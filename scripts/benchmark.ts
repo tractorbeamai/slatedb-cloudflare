@@ -28,6 +28,7 @@ type Config = {
 };
 
 type DatabaseStatus = {
+  runtime: "durable-object" | "container";
   open: boolean;
   cache_populated: boolean;
   cache_storage_bytes: number;
@@ -200,7 +201,7 @@ function assertNoObjectReset(before: string, after: string): void {
     for (const [counter, value] of Object.entries(previous)) {
       if ((current[counter] ?? 0) < value) {
         throw new Error(
-          `Durable Object reset during measurement: ${counter} fell from ${value} to ${current[counter] ?? 0}`,
+          `stateful instance reset during measurement: ${counter} fell from ${value} to ${current[counter] ?? 0}`,
         );
       }
     }
@@ -671,6 +672,7 @@ function costPhases(): Array<[string, string, string]> {
 }
 
 function costReport() {
+  const runtime = benchmarkRuntime();
   const phases = Object.fromEntries(
     costPhases().flatMap(([name, before, after]) =>
       telemetry[before] && telemetry[after]
@@ -679,6 +681,7 @@ function costReport() {
     ),
   );
   return {
+    runtime,
     currency: "USD",
     pricingAsOf: "2026-08-18",
     basis:
@@ -687,19 +690,32 @@ function costReport() {
       workers: "https://developers.cloudflare.com/workers/platform/pricing/",
       durableObjects:
         "https://developers.cloudflare.com/durable-objects/platform/pricing/",
+      containers: "https://developers.cloudflare.com/containers/pricing/",
       r2: "https://developers.cloudflare.com/r2/pricing/",
     },
     phases,
     notMeasured: [
       "Worker CPU milliseconds",
       "Durable Object active duration in GB-s",
+      ...(runtime === "container"
+        ? [
+            "Container active memory, CPU, and disk duration",
+            "R2 operations made through the native S3 client",
+          ]
+        : []),
       "time-integrated R2 and Durable Object GB-months",
       "rows removed by Durable Object storage deleteAll()",
       "account-wide included usage and billing-unit rounding",
     ],
     caveat:
-      "Operation and row counters are application-observed. Cloudflare account billing is authoritative.",
+      runtime === "container"
+        ? "Only request costs visible to the shared driver are subtotaled. Container and native S3 usage require Cloudflare billing data."
+        : "Operation and row counters are application-observed. Cloudflare account billing is authoritative.",
   };
+}
+
+function benchmarkRuntime(): DatabaseStatus["runtime"] {
+  return telemetry.runStart?.[0]?.runtime ?? "durable-object";
 }
 
 function phaseCost(before: string, after: string) {
@@ -755,6 +771,10 @@ function phaseCost(before: string, after: string) {
         r2OperationUsd +
         durableObjectStorageOperationUsd,
     ),
+    container:
+      benchmarkRuntime() === "container"
+        ? { activeResourceCostUsd: null, r2OperationCostUsd: null }
+        : null,
   };
 }
 
@@ -797,10 +817,15 @@ async function finish(phaseResults: Result[]): Promise<never> {
     measurement:
       config.profile === "slatedb-balanced"
         ? {
-            latencyBoundary: "SlateDB Db call inside the Durable Object",
+            latencyBoundary:
+              benchmarkRuntime() === "container"
+                ? "SlateDB Db call inside the native container"
+                : "SlateDB Db call inside the Durable Object",
             throughputBoundary: "external client over batched requests",
             deployedClock:
-              "unavailable when no I/O advances the Worker clock; reported as null",
+              benchmarkRuntime() === "container"
+                ? "native monotonic clock"
+                : "unavailable when no I/O advances the Worker clock; reported as null",
           }
         : {
             latencyBoundary: "end-to-end HTTP request",

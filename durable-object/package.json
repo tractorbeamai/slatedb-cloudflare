@@ -1,0 +1,19 @@
+{
+  "name": "@slatedb-cloudflare/durable-object",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "scripts": {
+    "benchmark": "bun ../scripts/benchmark.ts",
+    "build": "wrangler deploy --dry-run",
+    "check": "bash scripts/prepare-vendor.sh && cargo check --target wasm32-unknown-unknown && cargo test && cargo clippy --all-targets --no-deps -- -D warnings && wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "format": "cargo fmt --all",
+    "format:check": "cargo fmt --all -- --check",
+    "smoke": "bash ../scripts/smoke.sh"
+  },
+  "devDependencies": {
+    "wrangler": "4.123.0"
+  }
+}
