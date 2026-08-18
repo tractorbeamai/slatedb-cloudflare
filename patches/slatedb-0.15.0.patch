@@ -115,7 +115,7 @@ diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/cached_object_store/object_
  use crate::cached_object_store::storage_fs::FsCacheStorage;
  use crate::cached_object_store::LocalCacheEntry;
  use crate::config::ObjectStoreCacheOptions;
-@@ -119,6 +122,29 @@
+@@ -119,6 +122,28 @@
          }))
      }
  
@@ -124,11 +124,10 @@ diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/cached_object_store/object_
 +        object_store: Arc<dyn ObjectStore>,
 +        cache_storage: Arc<dyn LocalCacheStorage>,
 +        part_size_bytes: usize,
++        metrics_recorder: Arc<dyn MetricsRecorder>,
++        metric_level: MetricLevel,
 +    ) -> Result<Arc<Self>, crate::Error> {
-+        let recorder = MetricsRecorderHelper::new(
-+            Arc::new(NoopMetricsRecorder::new()),
-+            MetricLevel::default(),
-+        );
++        let recorder = MetricsRecorderHelper::new(metrics_recorder, metric_level);
 +        let stats = Arc::new(CachedObjectStoreStats::new(&recorder));
 +        let cached = Self::new(
 +            object_store,

@@ -26,7 +26,7 @@ in-memory database handle.
 
 SlateDB's decoupled object-store cache stores immutable compacted SST parts in
 the Durable Object Storage API. Cloudflare implements its key-value interface
-with the SQLite-backed object's hidden `__cf_kv` table. Parts are 1 MiB, below
+with the SQLite-backed object's hidden `__cf_kv` table. Parts are 64 KiB, below
 the platform's 2 MB combined key-and-value limit. Manifest, WAL, listing, and
 coordination operations bypass the cache and continue to use R2 directly.
 
@@ -139,6 +139,7 @@ Environment variables configure the workload:
 | `BENCH_WARMUP_SECONDS` | `3` | Unmeasured warmup per timed phase |
 | `BENCH_DURATION_SECONDS` | `15` | Measured time per timed phase |
 | `BENCH_BATCH_SIZE` | `1` or `32` | Operations per request; balanced profile uses `32` |
+| `BENCH_READ_PERCENT` | `50` | Point-read percentage in the balanced profile |
 | `BENCH_OUTPUT` | `table` | `table` or machine-readable `json` |
 
 Use one database to measure the ceiling of a single serialized Durable Object.
@@ -187,6 +188,49 @@ not eliminate request scheduling and serialization overhead, so throughput is
 an approximate embedded comparison. The working set is also much smaller than
 the release suite's 120 GiB dataset.
 
+The JSON report captures `/stats` before warmup, after warmup, after the measured
+phase, and after the durability drain. Each snapshot includes SlateDB's native
+metrics plus aggregate counters at the two platform adapters:
+
+- cache part/head hits, misses, reads, and writes;
+- cache bytes requested by SlateDB, loaded from Durable Object storage, and
+  returned to SlateDB;
+- R2 GET, HEAD, PUT, LIST, DELETE, multipart, error, and byte counts.
+
+Subtract adjacent snapshots to attribute a phase without adding a clock read to
+each database operation. In particular,
+`cacheLoadedBytes / cacheRequestedBytes` measures storage-read amplification,
+while the cache hit rate and R2 operation deltas show whether a workload is
+actually exercising the persistent cache. SlateDB metrics expose L0 growth,
+backpressure, flushes, compactions, object-store calls, and cache behavior at the
+engine boundary.
+
+Production tracing is enabled at a 10% sample rate in `wrangler.jsonc`. Cloudflare's automatic trace
+spans provide request CPU and wall time plus Durable Object, R2, and storage
+binding operations. Use a unique `BENCH_DATABASE_PREFIX` to correlate a run in
+Workers Observability. The benchmark report and Cloudflare traces are the two
+halves of the performance loop: the report attributes engine and adapter work;
+the traces locate CPU and platform I/O cost.
+
+For a short attribution matrix, keep the official 400-byte value and Zipfian
+selection, then vary only one dimension per run:
+
+```sh
+BENCH_PROFILE=slatedb-balanced BENCH_OUTPUT=json \
+  BENCH_RECORDS=10000 BENCH_VALUE_BYTES=400 \
+  BENCH_WARMUP_SECONDS=15 BENCH_DURATION_SECONDS=60 \
+  BENCH_READ_PERCENT=100 BENCH_CONCURRENCY=64 bun run benchmark
+
+BENCH_PROFILE=slatedb-balanced BENCH_OUTPUT=json \
+  BENCH_RECORDS=10000 BENCH_VALUE_BYTES=400 \
+  BENCH_WARMUP_SECONDS=15 BENCH_DURATION_SECONDS=60 \
+  BENCH_READ_PERCENT=0 BENCH_CONCURRENCY=64 bun run benchmark
+```
+
+Repeat the 50/50 workload at client counts 1, 8, 32, and 64. This separates
+read-path/cache cost, write/flush/compaction cost, and single-object scheduling
+before changing cache part size or SlateDB settings.
+
 ### Live embedded result
 
 The committed [August 18, 2026 result](benchmarks/live-embedded-balanced-2026-08-18.json)
@@ -211,6 +255,38 @@ The official suite reports get p1/p50/p99/p99.9 of
 0.005/0.013/0.039/0.075 ms. Those latency values are the valid reference until
 Cloudflare exposes a production timer that can measure computation between I/O
 events.
+
+### Performance attribution result
+
+The August 18 instrumentation runs found that persistent-cache part size, not
+R2, limited SST point reads. With 1 MiB parts, the measured read-only phase
+loaded 5.61 GB from Durable Object storage to satisfy 265 MB requested by
+SlateDB: 21.18× byte amplification. Changing only the part size to 64 KiB
+loaded 8.63 GB for 2.12 GB requested, or 4.07×, while throughput increased from
+58.55 to 539.47 gets/s (9.21×).
+
+| Workload | Clients × batch | Measured rate | Result |
+| --- | ---: | ---: | --- |
+| Read-only, 1 MiB parts | 64 × 32 | 58.55 gets/s | [JSON](benchmarks/live-perf-read-only-2026-08-18.json) |
+| Read-only, 64 KiB parts | 64 × 32 | 539.47 gets/s | [JSON](benchmarks/live-perf-read-only-64k-2026-08-18.json) |
+| 50/50, 64 KiB parts | 64 × 32 | 14,583.48 ops/s | [JSON](benchmarks/live-perf-balanced-64k-2026-08-18.json) |
+| Write-only, 64 KiB parts | 8 × 32 | 11,688.83 puts/s | [JSON](benchmarks/live-perf-write-only-c8-64k-2026-08-18.json) |
+| Write-only, 64 KiB parts | 64 × 4 | 8,910.31 puts/s | [JSON](benchmarks/live-perf-write-only-c64-b4-64k-2026-08-18.json) |
+
+These are 30- or 60-second attribution runs, not replacements for the full
+SlateDB release benchmark. The short 50/50 rate benefits from updates and hot
+reads remaining in memory; its 10,000-record working set is also far smaller
+than SlateDB's roughly 120 GiB release dataset. A 64-client write-only run with
+32 operations per client reset the Durable Object with an incomplete promise;
+reducing the request to four operations per client completed. This identifies
+per-request work size and the single-threaded Worker runtime as the write-side
+limit to investigate next.
+
+The current read ceiling still performs about four Durable Object part reads
+per point lookup and materializes roughly four bytes for every byte SlateDB
+requests. The next useful experiment is a 16 or 32 KiB part size; an in-memory
+decoded-block cache would be a larger architectural change and is intentionally
+not hidden inside this adapter.
 
 ## Checks
 

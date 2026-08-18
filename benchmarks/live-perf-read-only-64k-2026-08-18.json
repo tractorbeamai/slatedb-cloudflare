@@ -1,0 +1,2467 @@
+{
+  "generatedAt": "2026-08-18T03:44:26.123Z",
+  "config": {
+    "baseUrl": "https://slatedb-cloudflare-feasibility.tractorbeamai.workers.dev",
+    "token": "<redacted>",
+    "profile": "slatedb-balanced",
+    "databasePrefix": "perf-read64-17870246",
+    "databases": 1,
+    "records": 10000,
+    "valueBytes": 400,
+    "concurrency": 64,
+    "durationSeconds": 60,
+    "warmupSeconds": 15,
+    "batchSize": 32,
+    "readPercent": 100,
+    "output": "table",
+    "outputFile": "benchmarks/live-perf-read-only-64k-2026-08-18.json"
+  },
+  "measurement": {
+    "latencyBoundary": "SlateDB Db call inside the Durable Object",
+    "throughputBoundary": "external client over batched requests",
+    "deployedClock": "unavailable when no I/O advances the Worker clock; reported as null"
+  },
+  "results": [
+    {
+      "phase": "seed-write",
+      "operations": 10000,
+      "errors": 0,
+      "seconds": 2.73,
+      "operationsPerSecond": 3661.81,
+      "unmeasurableOperations": 10000,
+      "p1Ms": null,
+      "p50Ms": null,
+      "p95Ms": null,
+      "p99Ms": null,
+      "p999Ms": null,
+      "maxMs": null,
+      "errorSamples": []
+    },
+    {
+      "phase": "balanced-get",
+      "operations": 32768,
+      "errors": 0,
+      "seconds": 60.74,
+      "operationsPerSecond": 539.47,
+      "unmeasurableOperations": 32768,
+      "p1Ms": null,
+      "p50Ms": null,
+      "p95Ms": null,
+      "p99Ms": null,
+      "p999Ms": null,
+      "maxMs": null,
+      "errorSamples": []
+    },
+    {
+      "phase": "balanced-put",
+      "operations": 0,
+      "errors": 0,
+      "seconds": 60.74,
+      "operationsPerSecond": 0,
+      "unmeasurableOperations": 0,
+      "p1Ms": null,
+      "p50Ms": null,
+      "p95Ms": null,
+      "p99Ms": null,
+      "p999Ms": null,
+      "maxMs": null,
+      "errorSamples": []
+    },
+    {
+      "phase": "durability-drain",
+      "operations": 1,
+      "errors": 0,
+      "seconds": 0.02,
+      "operationsPerSecond": 40.89,
+      "unmeasurableOperations": 0,
+      "p1Ms": 23.98,
+      "p50Ms": 23.98,
+      "p95Ms": 23.98,
+      "p99Ms": 23.98,
+      "p999Ms": 23.98,
+      "maxMs": 23.98,
+      "errorSamples": []
+    }
+  ],
+  "telemetry": {
+    "beforeWarmup": [
+      {
+        "open": true,
+        "cache_populated": false,
+        "adapter": {
+          "cachePartReads": 0,
+          "cachePartHits": 0,
+          "cachePartMisses": 0,
+          "cacheRequestedBytes": 0,
+          "cacheLoadedBytes": 0,
+          "cacheReturnedBytes": 0,
+          "cachePartWrites": 0,
+          "cacheWrittenBytes": 0,
+          "cacheHeadReads": 0,
+          "cacheHeadHits": 0,
+          "cacheHeadMisses": 0,
+          "cacheHeadWrites": 0,
+          "cacheErrors": 0,
+          "r2Gets": 88,
+          "r2Heads": 21,
+          "r2Puts": 17,
+          "r2Lists": 11,
+          "r2Deletes": 0,
+          "r2ReadBytes": 4295997,
+          "r2WrittenBytes": 8614114,
+          "r2MultipartUploads": 0,
+          "r2MultipartParts": 0,
+          "r2Errors": 0
+        },
+        "slatedb": [
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "get"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 32
+            }
+          },
+          {
+            "name": "slatedb.object_store.error_count",
+            "labels": [
+              [
+                "api",
+                "get"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 29
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "get"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 32,
+              "sum": 1.6599996080000001,
+              "min": 0.034999847,
+              "max": 0.104000091,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                0,
+                0,
+                0,
+                0,
+                20,
+                11,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "get_range"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 11
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "get_range"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 11,
+              "sum": 0.8139998919999999,
+              "min": 0.046999932,
+              "max": 0.124000072,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                0,
+                0,
+                0,
+                0,
+                3,
+                5,
+                3,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "head"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 12
+            }
+          },
+          {
+            "name": "slatedb.object_store.error_count",
+            "labels": [
+              [
+                "api",
+                "head"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 7
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "head"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 12,
+              "sum": 0.8110008200000001,
+              "min": 0.04399991,
+              "max": 0.103000164,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                0,
+                0,
+                0,
+                0,
+                4,
+                7,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "list"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 3
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "put"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "put"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 5
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "put"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "put"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 5,
+              "sum": 0.795000316,
+              "min": 0.095000028,
+              "max": 0.202999831,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.db.backpressure_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.db.l0_stall_count",
+            "labels": [
+              [
+                "type",
+                "num_ssts"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.db.l0_stall_count",
+            "labels": [
+              [
+                "type",
+                "num_ssts_per_key"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.db.l0_sst_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.db.segment_max_l0_sst_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.db.sst_view_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.db.sst_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.compactor.epoch",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 2
+            }
+          },
+          {
+            "name": "slatedb.compactor.running_compactions",
+            "labels": [
+              [
+                "worker_id",
+                "01M09FEG2EGJZ2NQZMN9NDM3X5"
+              ]
+            ],
+            "value": {
+              "type": "upDownCounter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "list"
+              ],
+              [
+                "component",
+                "gc"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.memtable_flush.manifest_refresh_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 1
+            }
+          }
+        ]
+      }
+    ],
+    "afterWarmup": [
+      {
+        "open": true,
+        "cache_populated": true,
+        "adapter": {
+          "cachePartReads": 33944,
+          "cachePartHits": 33593,
+          "cachePartMisses": 351,
+          "cacheRequestedBytes": 529857190,
+          "cacheLoadedBytes": 2136518720,
+          "cacheReturnedBytes": 526014875,
+          "cachePartWrites": 66,
+          "cacheWrittenBytes": 4317375,
+          "cacheHeadReads": 25180,
+          "cacheHeadHits": 25116,
+          "cacheHeadMisses": 64,
+          "cacheHeadWrites": 66,
+          "cacheErrors": 0,
+          "r2Gets": 176,
+          "r2Heads": 21,
+          "r2Puts": 17,
+          "r2Lists": 14,
+          "r2Deletes": 0,
+          "r2ReadBytes": 8613372,
+          "r2WrittenBytes": 8614114,
+          "r2MultipartUploads": 0,
+          "r2MultipartParts": 0,
+          "r2Errors": 0
+        },
+        "slatedb": [
+          {
+            "name": "slatedb.object_store_cache.part_hit_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 33529
+            }
+          },
+          {
+            "name": "slatedb.object_store_cache.part_access_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 33944
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "get"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 51
+            }
+          },
+          {
+            "name": "slatedb.object_store.error_count",
+            "labels": [
+              [
+                "api",
+                "get"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 48
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "get"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 51,
+              "sum": 27.097999571000003,
+              "min": 0.021999836,
+              "max": 4.125,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                0,
+                0,
+                0,
+                1,
+                24,
+                11,
+                6,
+                1,
+                1,
+                2,
+                5,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "get_range"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 25191
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "get_range"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 25191,
+              "sum": 7.405995155999993,
+              "min": 0,
+              "max": 0.124000072,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                25116,
+                0,
+                0,
+                0,
+                3,
+                5,
+                67,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "head"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 12
+            }
+          },
+          {
+            "name": "slatedb.object_store.error_count",
+            "labels": [
+              [
+                "api",
+                "head"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 7
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "head"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 12,
+              "sum": 0.8110008200000001,
+              "min": 0.04399991,
+              "max": 0.103000164,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                0,
+                0,
+                0,
+                0,
+                4,
+                7,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "list"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 4
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "put"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "put"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 5
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "put"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "put"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 5,
+              "sum": 0.795000316,
+              "min": 0.095000028,
+              "max": 0.202999831,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.db.sst_filter_positive_count",
+            "labels": [
+              [
+                "kind",
+                "point"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 8192
+            }
+          },
+          {
+            "name": "slatedb.db.backpressure_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.db.l0_stall_count",
+            "labels": [
+              [
+                "type",
+                "num_ssts"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.db.l0_stall_count",
+            "labels": [
+              [
+                "type",
+                "num_ssts_per_key"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.db.request_count",
+            "labels": [
+              [
+                "op",
+                "get"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 8192
+            }
+          },
+          {
+            "name": "slatedb.db.l0_sst_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.db.segment_max_l0_sst_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.db.sst_view_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.db.sst_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.compactor.epoch",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 2
+            }
+          },
+          {
+            "name": "slatedb.compactor.running_compactions",
+            "labels": [
+              [
+                "worker_id",
+                "01M09FEG2EGJZ2NQZMN9NDM3X5"
+              ]
+            ],
+            "value": {
+              "type": "upDownCounter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "list"
+              ],
+              [
+                "component",
+                "gc"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 3
+            }
+          },
+          {
+            "name": "slatedb.memtable_flush.manifest_refresh_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 4
+            }
+          }
+        ]
+      }
+    ],
+    "afterMeasurement": [
+      {
+        "open": true,
+        "cache_populated": true,
+        "adapter": {
+          "cachePartReads": 169608,
+          "cachePartHits": 169257,
+          "cachePartMisses": 351,
+          "cacheRequestedBytes": 2649243583,
+          "cacheLoadedBytes": 10765217856,
+          "cacheReturnedBytes": 2645401268,
+          "cachePartWrites": 66,
+          "cacheWrittenBytes": 4317375,
+          "cacheHeadReads": 125888,
+          "cacheHeadHits": 125824,
+          "cacheHeadMisses": 64,
+          "cacheHeadWrites": 66,
+          "cacheErrors": 0,
+          "r2Gets": 233,
+          "r2Heads": 21,
+          "r2Puts": 17,
+          "r2Lists": 15,
+          "r2Deletes": 0,
+          "r2ReadBytes": 8613742,
+          "r2WrittenBytes": 8614114,
+          "r2MultipartUploads": 0,
+          "r2MultipartParts": 0,
+          "r2Errors": 0
+        },
+        "slatedb": [
+          {
+            "name": "slatedb.object_store_cache.part_hit_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 169193
+            }
+          },
+          {
+            "name": "slatedb.object_store_cache.part_access_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 169608
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "get"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 108
+            }
+          },
+          {
+            "name": "slatedb.object_store.error_count",
+            "labels": [
+              [
+                "api",
+                "get"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 104
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "get"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 108,
+              "sum": 233.616999863,
+              "min": 0.021999836,
+              "max": 4.77699995,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                0,
+                0,
+                0,
+                1,
+                24,
+                11,
+                10,
+                1,
+                1,
+                2,
+                58,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "get_range"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 125899
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "get_range"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 125899,
+              "sum": 7.405995155999993,
+              "min": 0,
+              "max": 0.124000072,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                125824,
+                0,
+                0,
+                0,
+                3,
+                5,
+                67,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "head"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 12
+            }
+          },
+          {
+            "name": "slatedb.object_store.error_count",
+            "labels": [
+              [
+                "api",
+                "head"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 7
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "head"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 12,
+              "sum": 0.8110008200000001,
+              "min": 0.04399991,
+              "max": 0.103000164,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                0,
+                0,
+                0,
+                0,
+                4,
+                7,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "list"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 5
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "put"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "put"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 5
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "put"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "put"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 5,
+              "sum": 0.795000316,
+              "min": 0.095000028,
+              "max": 0.202999831,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.db.sst_filter_positive_count",
+            "labels": [
+              [
+                "kind",
+                "point"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 40960
+            }
+          },
+          {
+            "name": "slatedb.db.backpressure_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.db.l0_stall_count",
+            "labels": [
+              [
+                "type",
+                "num_ssts"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.db.l0_stall_count",
+            "labels": [
+              [
+                "type",
+                "num_ssts_per_key"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.db.request_count",
+            "labels": [
+              [
+                "op",
+                "get"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 40960
+            }
+          },
+          {
+            "name": "slatedb.db.l0_sst_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.db.segment_max_l0_sst_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.db.sst_view_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.db.sst_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.compactor.epoch",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 2
+            }
+          },
+          {
+            "name": "slatedb.compactor.running_compactions",
+            "labels": [
+              [
+                "worker_id",
+                "01M09FEG2EGJZ2NQZMN9NDM3X5"
+              ]
+            ],
+            "value": {
+              "type": "upDownCounter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "list"
+              ],
+              [
+                "component",
+                "gc"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 3
+            }
+          },
+          {
+            "name": "slatedb.memtable_flush.manifest_refresh_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 12
+            }
+          }
+        ]
+      }
+    ],
+    "afterDurabilityDrain": [
+      {
+        "open": true,
+        "cache_populated": true,
+        "adapter": {
+          "cachePartReads": 169608,
+          "cachePartHits": 169257,
+          "cachePartMisses": 351,
+          "cacheRequestedBytes": 2649243583,
+          "cacheLoadedBytes": 10765217856,
+          "cacheReturnedBytes": 2645401268,
+          "cachePartWrites": 66,
+          "cacheWrittenBytes": 4317375,
+          "cacheHeadReads": 125888,
+          "cacheHeadHits": 125824,
+          "cacheHeadMisses": 64,
+          "cacheHeadWrites": 66,
+          "cacheErrors": 0,
+          "r2Gets": 237,
+          "r2Heads": 21,
+          "r2Puts": 17,
+          "r2Lists": 15,
+          "r2Deletes": 0,
+          "r2ReadBytes": 8613742,
+          "r2WrittenBytes": 8614114,
+          "r2MultipartUploads": 0,
+          "r2MultipartParts": 0,
+          "r2Errors": 0
+        },
+        "slatedb": [
+          {
+            "name": "slatedb.object_store_cache.part_hit_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 169193
+            }
+          },
+          {
+            "name": "slatedb.object_store_cache.part_access_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 169608
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "get"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 112
+            }
+          },
+          {
+            "name": "slatedb.object_store.error_count",
+            "labels": [
+              [
+                "api",
+                "get"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 108
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "get"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 112,
+              "sum": 247.713999748,
+              "min": 0.021999836,
+              "max": 4.77699995,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                0,
+                0,
+                0,
+                1,
+                24,
+                11,
+                10,
+                1,
+                1,
+                2,
+                62,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "get_range"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 125899
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "get_range"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 125899,
+              "sum": 7.405995155999993,
+              "min": 0,
+              "max": 0.124000072,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                125824,
+                0,
+                0,
+                0,
+                3,
+                5,
+                67,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "head"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 12
+            }
+          },
+          {
+            "name": "slatedb.object_store.error_count",
+            "labels": [
+              [
+                "api",
+                "head"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 7
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "head"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 12,
+              "sum": 0.8110008200000001,
+              "min": 0.04399991,
+              "max": 0.103000164,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                0,
+                0,
+                0,
+                0,
+                4,
+                7,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "list"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 5
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "put"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "put"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 5
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_duration_seconds",
+            "labels": [
+              [
+                "api",
+                "put"
+              ],
+              [
+                "component",
+                "db"
+              ],
+              [
+                "op",
+                "put"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "histogram",
+              "count": 5,
+              "sum": 0.795000316,
+              "min": 0.095000028,
+              "max": 0.202999831,
+              "boundaries": [
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+                2.5,
+                5,
+                10
+              ],
+              "bucket_counts": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          },
+          {
+            "name": "slatedb.wal.wal_buffer_flush_requests",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.db.sst_filter_positive_count",
+            "labels": [
+              [
+                "kind",
+                "point"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 40960
+            }
+          },
+          {
+            "name": "slatedb.db.backpressure_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.db.l0_stall_count",
+            "labels": [
+              [
+                "type",
+                "num_ssts"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.db.l0_stall_count",
+            "labels": [
+              [
+                "type",
+                "num_ssts_per_key"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.db.request_count",
+            "labels": [
+              [
+                "op",
+                "get"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 40960
+            }
+          },
+          {
+            "name": "slatedb.db.request_count",
+            "labels": [
+              [
+                "op",
+                "flush"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.db.l0_sst_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.db.segment_max_l0_sst_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.db.sst_view_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.db.sst_count",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.compactor.epoch",
+            "labels": [],
+            "value": {
+              "type": "gauge",
+              "value": 2
+            }
+          },
+          {
+            "name": "slatedb.compactor.running_compactions",
+            "labels": [
+              [
+                "worker_id",
+                "01M09FEG2EGJZ2NQZMN9NDM3X5"
+              ]
+            ],
+            "value": {
+              "type": "upDownCounter",
+              "value": 0
+            }
+          },
+          {
+            "name": "slatedb.object_store.request_count",
+            "labels": [
+              [
+                "api",
+                "list"
+              ],
+              [
+                "component",
+                "gc"
+              ],
+              [
+                "op",
+                "get"
+              ],
+              [
+                "store_type",
+                "main"
+              ]
+            ],
+            "value": {
+              "type": "counter",
+              "value": 3
+            }
+          },
+          {
+            "name": "slatedb.memtable_flush.flush_request_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 1
+            }
+          },
+          {
+            "name": "slatedb.memtable_flush.manifest_refresh_count",
+            "labels": [],
+            "value": {
+              "type": "counter",
+              "value": 13
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

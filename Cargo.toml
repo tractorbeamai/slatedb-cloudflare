@@ -17,6 +17,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_bytes = "0.11.19"
 serde_json = "1.0.149"
 slatedb = { path = "vendor/slatedb", default-features = false }
+slatedb-common = { path = "vendor/slatedb-common" }
 worker = "=0.8.5"
 web-time = "1.1.0"
 

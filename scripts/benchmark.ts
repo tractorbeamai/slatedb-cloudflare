@@ -22,7 +22,20 @@ type Config = {
   durationSeconds: number;
   warmupSeconds: number;
   batchSize: number;
+  readPercent: number;
   output: "table" | "json";
+  outputFile?: string;
+};
+
+type DatabaseStatus = {
+  open: boolean;
+  cache_populated: boolean;
+  adapter: Record<string, number>;
+  slatedb: Array<{
+    name: string;
+    labels: Array<[string, string]>;
+    value: Record<string, unknown>;
+  }>;
 };
 
 type Sample = {
@@ -75,21 +88,23 @@ const headers = {
 };
 
 const results: Result[] = [];
+const telemetry: Record<string, DatabaseStatus[]> = {};
 
 if (config.profile === "slatedb-balanced") {
   await runSlatedbBalanced();
 } else {
   await runDefault();
 }
-finish(results);
+await finish(results);
 
 async function runDefault(): Promise<void> {
   results.push(
     await runCounted("seed-write", config.databases * config.records, putSeed),
   );
-  if (results.at(-1)?.errors) finish(results);
+  if (results.at(-1)?.errors) await finish(results);
 
   await prepareSeededDatabases();
+  await captureTelemetry("beforeWarmup");
 
   results.push(
     await runCounted(
@@ -98,7 +113,7 @@ async function runDefault(): Promise<void> {
       getSeed,
     ),
   );
-  if (results.at(-1)?.errors) finish(results);
+  if (results.at(-1)?.errors) await finish(results);
 
   for (const database of databases) {
     const status = await requestJson<{ cache_populated: boolean }>(
@@ -135,11 +150,13 @@ async function runDefault(): Promise<void> {
 
 async function runSlatedbBalanced(): Promise<void> {
   results.push(await seedBalanced());
-  if (results.at(-1)?.errors) finish(results);
+  if (results.at(-1)?.errors) await finish(results);
   await prepareSeededDatabases();
+  await captureTelemetry("beforeWarmup");
 
   const selectRecord = scrambledZipfianSampler(config.records, 0.99);
   await runBalancedFor(config.warmupSeconds * 1_000, selectRecord);
+  await captureTelemetry("afterWarmup");
 
   const started = performance.now();
   const measurements = await runBalancedFor(
@@ -151,10 +168,34 @@ async function runSlatedbBalanced(): Promise<void> {
     summarizeEmbedded("balanced-get", measurements.get, elapsed),
     summarizeEmbedded("balanced-put", measurements.put, elapsed),
   );
+  await captureTelemetry("afterMeasurement");
   results.push(
     await runCounted("durability-drain", databases.length, async (index) => {
       await admin(databases[index], "flush");
     }),
+  );
+  await captureTelemetry("afterDurabilityDrain");
+}
+
+async function captureTelemetry(checkpoint: string): Promise<void> {
+  const statuses = await Promise.all(
+    databases.map((database) =>
+      requestJson<DatabaseStatus>(`/v1/db/${database}/stats`),
+    ),
+  );
+  telemetry[checkpoint] = statuses.map((status) => ({
+    ...status,
+    slatedb: status.slatedb.filter(reportMetric),
+  }));
+}
+
+function reportMetric(metric: DatabaseStatus["slatedb"][number]): boolean {
+  const value = metric.value.value ?? metric.value.count ?? 0;
+  return (
+    value !== 0 ||
+    metric.name === "slatedb.db.backpressure_count" ||
+    metric.name === "slatedb.db.l0_stall_count" ||
+    metric.name === "slatedb.compactor.running_compactions"
   );
 }
 
@@ -331,7 +372,10 @@ async function runBalancedFor(
       const databaseIndex = Math.floor(random() * databases.length);
       clientsByDatabase[databaseIndex].push(
         Array.from({ length: config.batchSize }, () => ({
-          operation: random() < 0.5 ? ("get" as const) : ("put" as const),
+          operation:
+            random() < config.readPercent / 100
+              ? ("get" as const)
+              : ("put" as const),
           key: seedKey(selectRecord(random)),
         })),
       );
@@ -406,7 +450,7 @@ function summarizeEmbedded(
     .map((latencyNs) => latencyNs / 1_000_000)
     .sort((left, right) => left - right);
   const latency = (quantile: number): number | null =>
-    measurements.unmeasurableOperations > 0
+    measurements.operations === 0 || measurements.unmeasurableOperations > 0
       ? null
       : round(percentile(latencyMs, quantile));
   const seconds = elapsedMs / 1_000;
@@ -423,7 +467,7 @@ function summarizeEmbedded(
     p99Ms: latency(0.99),
     p999Ms: latency(0.999),
     maxMs:
-      measurements.unmeasurableOperations > 0
+      measurements.operations === 0 || measurements.unmeasurableOperations > 0
         ? null
         : round(latencyMs.at(-1) ?? 0),
     errorSamples: [],
@@ -546,7 +590,9 @@ function readConfig(): Config {
       3_600,
     ),
     batchSize: integer("BENCH_BATCH_SIZE", balanced ? 32 : 1, 1, 512),
+    readPercent: integer("BENCH_READ_PERCENT", 50, 0, 100),
     output,
+    outputFile: Bun.env.BENCH_OUTPUT_FILE,
   };
 }
 
@@ -573,7 +619,7 @@ function round(value: number): number {
   return Number(value.toFixed(2));
 }
 
-function finish(phaseResults: Result[]): never {
+async function finish(phaseResults: Result[]): Promise<never> {
   const report = {
     generatedAt: new Date().toISOString(),
     config: { ...config, token: "<redacted>" },
@@ -590,9 +636,14 @@ function finish(phaseResults: Result[]): never {
             throughputBoundary: "external client over individual requests",
           },
     results: phaseResults,
+    telemetry,
   };
+  const json = JSON.stringify(report, null, 2);
+  if (config.outputFile) {
+    await Bun.write(config.outputFile, `${json}\n`);
+  }
   if (config.output === "json") {
-    console.log(JSON.stringify(report, null, 2));
+    console.log(json);
   } else {
     console.table(
       phaseResults.map(({ errorSamples: _errorSamples, ...result }) => result),

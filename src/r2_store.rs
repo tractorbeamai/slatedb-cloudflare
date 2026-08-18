@@ -15,6 +15,8 @@ use slatedb::object_store::{
 use worker::send::IntoSendFuture;
 use worker::{Conditional, Date, DateInit, Env, Range as R2Range};
 
+use crate::perf::{PerfCounters, increment};
+
 const STORE: &str = "cloudflare-r2";
 const MAX_MULTIPART_PARTS: u16 = 10_000;
 
@@ -22,11 +24,12 @@ const MAX_MULTIPART_PARTS: u16 = 10_000;
 pub struct R2Store {
     env: Env,
     binding: &'static str,
+    perf: Arc<PerfCounters>,
 }
 
 impl R2Store {
-    pub fn new(env: Env, binding: &'static str) -> Self {
-        Self { env, binding }
+    pub fn new(env: Env, binding: &'static str, perf: Arc<PerfCounters>) -> Self {
+        Self { env, binding, perf }
     }
 
     fn key(&self, path: &Path) -> String {
@@ -38,14 +41,20 @@ impl R2Store {
     }
 
     async fn put_bytes(&self, location: &Path, bytes: Vec<u8>, mode: PutMode) -> Result<PutResult> {
+        increment(&self.perf.r2_puts, 1);
+        let byte_count = bytes.len() as u64;
         let bucket = self.bucket()?;
         let mut request = bucket.put(self.key(location), bytes);
         let conditional = put_conditional(&mode)?;
         if let Some(conditional) = conditional {
             request = request.only_if(conditional);
         }
-        let object = request.execute().await.map_err(generic)?;
+        let object = request.execute().await.map_err(|error| {
+            increment(&self.perf.r2_errors, 1);
+            generic(error)
+        })?;
         let object = object.ok_or_else(|| failed_put_precondition(location, &mode))?;
+        increment(&self.perf.r2_written_bytes, byte_count);
         Ok(PutResult {
             e_tag: Some(object.etag()),
             version: Some(object.version()),
@@ -54,6 +63,11 @@ impl R2Store {
     }
 
     async fn get_inner(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
+        if options.head {
+            increment(&self.perf.r2_heads, 1);
+        } else {
+            increment(&self.perf.r2_gets, 1);
+        }
         if options.version.is_some() {
             return Err(Error::NotSupported {
                 source: message("R2 Workers bindings do not expose versioned GET"),
@@ -68,7 +82,10 @@ impl R2Store {
             && options.if_modified_since.is_none()
             && options.if_unmodified_since.is_none();
         let object = if plain_head {
-            bucket.head(key).await.map_err(generic)?
+            bucket.head(key).await.map_err(|error| {
+                increment(&self.perf.r2_errors, 1);
+                generic(error)
+            })?
         } else {
             let mut request = bucket.get(key);
             let conditional = Conditional {
@@ -87,7 +104,10 @@ impl R2Store {
             if let Some(range) = options.range.as_ref() {
                 request = request.range(to_r2_range(range)?);
             }
-            request.execute().await.map_err(generic)?
+            request.execute().await.map_err(|error| {
+                increment(&self.perf.r2_errors, 1);
+                generic(error)
+            })?
         }
         .ok_or_else(|| Error::NotFound {
             path: location.to_string(),
@@ -103,7 +123,12 @@ impl R2Store {
                 path: location.to_string(),
                 source: message("R2 returned metadata without a body"),
             })?;
-            Bytes::from(body.bytes().await.map_err(generic)?)
+            let bytes = Bytes::from(body.bytes().await.map_err(|error| {
+                increment(&self.perf.r2_errors, 1);
+                generic(error)
+            })?);
+            increment(&self.perf.r2_read_bytes, bytes.len() as u64);
+            bytes
         };
         Ok(result(meta, range, bytes))
     }
@@ -114,6 +139,7 @@ impl R2Store {
         cursor: Option<String>,
         delimiter: Option<&str>,
     ) -> Result<(Vec<ObjectMeta>, Vec<Path>, Option<String>)> {
+        increment(&self.perf.r2_lists, 1);
         let bucket = self.bucket()?;
         let mut request = bucket.list().prefix(prefix.unwrap_or_default());
         if let Some(cursor) = cursor {
@@ -122,7 +148,10 @@ impl R2Store {
         if let Some(delimiter) = delimiter {
             request = request.delimiter(delimiter);
         }
-        let objects = request.execute().await.map_err(generic)?;
+        let objects = request.execute().await.map_err(|error| {
+            increment(&self.perf.r2_errors, 1);
+            generic(error)
+        })?;
         let mut metadata = Vec::new();
         for object in objects.objects() {
             metadata.push(object_meta(Path::from(object.key()), &object));
@@ -167,6 +196,7 @@ impl ObjectStore for R2Store {
         location: &Path,
         _opts: PutMultipartOptions,
     ) -> Result<Box<dyn MultipartUpload>> {
+        increment(&self.perf.r2_multipart_uploads, 1);
         let key = self.key(location);
         let upload = self
             .bucket()?
@@ -185,6 +215,7 @@ impl ObjectStore for R2Store {
             uploaded_parts: Arc::new(Mutex::new(Vec::new())),
             next_part: 1,
             finished: false,
+            perf: Arc::clone(&self.perf),
         }))
     }
 
@@ -202,12 +233,16 @@ impl ObjectStore for R2Store {
                 let store = store.clone();
                 async move {
                     let location = location?;
+                    increment(&store.perf.r2_deletes, 1);
                     let bucket = store.bucket()?;
                     bucket
                         .delete(store.key(&location))
                         .into_send()
                         .await
-                        .map_err(generic)?;
+                        .map_err(|error| {
+                            increment(&store.perf.r2_errors, 1);
+                            generic(error)
+                        })?;
                     Ok(location)
                 }
             })
@@ -301,6 +336,7 @@ struct R2MultipartUpload {
     uploaded_parts: Arc<Mutex<Vec<(u16, String)>>>,
     next_part: u16,
     finished: bool,
+    perf: Arc<PerfCounters>,
 }
 
 impl Debug for R2MultipartUpload {
@@ -336,17 +372,27 @@ impl MultipartUpload for R2MultipartUpload {
         let upload_id = self.upload_id.clone();
         let uploaded_parts = Arc::clone(&self.uploaded_parts);
         let bytes = collect_payload(data);
+        let byte_count = bytes.len() as u64;
+        let perf = Arc::clone(&self.perf);
         async move {
             let upload = env
                 .bucket(binding)
                 .map_err(generic)?
                 .resume_multipart_upload(key, upload_id)
-                .map_err(generic)?;
+                .map_err(|error| {
+                    increment(&perf.r2_errors, 1);
+                    generic(error)
+                })?;
             let part = upload
                 .upload_part(part_number, bytes)
                 .into_send()
                 .await
-                .map_err(generic)?;
+                .map_err(|error| {
+                    increment(&perf.r2_errors, 1);
+                    generic(error)
+                })?;
+            increment(&perf.r2_multipart_parts, 1);
+            increment(&perf.r2_written_bytes, byte_count);
             uploaded_parts
                 .lock()
                 .map_err(|_| multipart_lock_error())?
@@ -376,7 +422,10 @@ impl MultipartUpload for R2MultipartUpload {
         let parts = parts
             .into_iter()
             .map(|(part_number, etag)| worker::UploadedPart::new(part_number, etag));
-        let object = upload.complete(parts).into_send().await.map_err(generic)?;
+        let object = upload.complete(parts).into_send().await.map_err(|error| {
+            increment(&self.perf.r2_errors, 1);
+            generic(error)
+        })?;
         Ok(PutResult {
             e_tag: Some(object.etag()),
             version: Some(object.version()),
@@ -397,7 +446,10 @@ impl MultipartUpload for R2MultipartUpload {
             .abort()
             .into_send()
             .await
-            .map_err(generic)
+            .map_err(|error| {
+                increment(&self.perf.r2_errors, 1);
+                generic(error)
+            })
     }
 }
 

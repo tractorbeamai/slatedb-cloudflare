@@ -1303,6 +1303,7 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "slatedb",
+ "slatedb-common",
  "uuid",
  "web-time",
  "worker",

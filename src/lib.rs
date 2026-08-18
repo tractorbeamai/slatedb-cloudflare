@@ -4,22 +4,25 @@ use futures::{future::try_join_all, lock::Mutex};
 use serde::{Deserialize, Serialize};
 use slatedb::Db;
 use slatedb::cached_object_store::CachedObjectStore;
-use slatedb::config::{FlushOptions, FlushType, PutOptions, WriteOptions};
+use slatedb::config::{FlushOptions, FlushType, MetricLevel, PutOptions, Settings, WriteOptions};
 use slatedb::object_store::ObjectStore;
 use slatedb::object_store::prefix::PrefixStore;
+use slatedb_common::metrics::{DefaultMetricsRecorder, MetricValue};
 use worker::*;
 
 mod do_cache;
+mod perf;
 mod r2_store;
 
 use do_cache::DoCacheStorage;
+use perf::{PerfCounters, PerfSnapshot};
 use r2_store::R2Store;
 
 const DB_BINDING: &str = "SLATEDB_OBJECTS";
 const R2_BINDING: &str = "SLATEDB_BUCKET";
 const TOKEN_SECRET: &str = "PROBE_TOKEN";
 const DB_ROOT: &str = "slatedb";
-const CACHE_PART_SIZE: usize = 1024 * 1024;
+const CACHE_PART_SIZE: usize = 64 * 1024;
 
 #[derive(Debug, Deserialize)]
 struct PutRequest {
@@ -92,11 +95,43 @@ struct OkResponse {
 struct StatusResponse {
     open: bool,
     cache_populated: bool,
+    adapter: PerfSnapshot,
+    slatedb: Vec<SlateMetric>,
+}
+
+#[derive(Debug, Serialize)]
+struct SlateMetric {
+    name: String,
+    labels: Vec<(String, String)>,
+    value: SlateMetricValue,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum SlateMetricValue {
+    Counter {
+        value: u64,
+    },
+    Gauge {
+        value: i64,
+    },
+    UpDownCounter {
+        value: i64,
+    },
+    Histogram {
+        count: u64,
+        sum: f64,
+        min: f64,
+        max: f64,
+        boundaries: Vec<f64>,
+        bucket_counts: Vec<u64>,
+    },
 }
 
 struct ActiveDb {
     name: String,
     db: Db,
+    metrics: Arc<DefaultMetricsRecorder>,
 }
 
 #[event(fetch, respond_with_errors)]
@@ -155,27 +190,40 @@ fn validate_database_name(name: &str) -> Result<()> {
 pub struct SlateDbObject {
     env: Env,
     cache: Arc<DoCacheStorage>,
+    perf: Arc<PerfCounters>,
     active: Mutex<Option<ActiveDb>>,
 }
 
 impl SlateDbObject {
     async fn open(&self, database: &str) -> Result<ActiveDb> {
+        let metrics = Arc::new(DefaultMetricsRecorder::new());
         let r2: Arc<dyn ObjectStore> = Arc::new(PrefixStore::new(
-            R2Store::new(self.env.clone(), R2_BINDING),
+            R2Store::new(self.env.clone(), R2_BINDING, Arc::clone(&self.perf)),
             database,
         ));
-        let cached: Arc<dyn ObjectStore> =
-            CachedObjectStore::from_storage(r2, self.cache.clone(), CACHE_PART_SIZE)
-                .await
-                .map_err(slatedb_error)?;
+        let cached: Arc<dyn ObjectStore> = CachedObjectStore::from_storage(
+            r2,
+            self.cache.clone(),
+            CACHE_PART_SIZE,
+            metrics.clone(),
+            MetricLevel::Debug,
+        )
+        .await
+        .map_err(slatedb_error)?;
         let db = Db::builder(DB_ROOT, cached)
             .with_db_cache_disabled()
+            .with_settings(Settings {
+                metric_level: MetricLevel::Debug,
+                ..Settings::default()
+            })
+            .with_metrics_recorder(metrics.clone())
             .build()
             .await
             .map_err(slatedb_error)?;
         Ok(ActiveDb {
             name: database.to_owned(),
             db,
+            metrics,
         })
     }
 
@@ -322,11 +370,19 @@ impl SlateDbObject {
                 Response::from_json(&OkResponse { ok: true })
             }
             (Method::Get, ["stats"]) => {
-                let open = self.active.lock().await.is_some();
+                let (open, slatedb) = self
+                    .active
+                    .lock()
+                    .await
+                    .as_ref()
+                    .map(|active| (true, slate_metrics(&active.metrics)))
+                    .unwrap_or_else(|| (false, Vec::new()));
                 let cache_populated = self.cache.is_populated().await?;
                 Response::from_json(&StatusResponse {
                     open,
                     cache_populated,
+                    adapter: self.perf.snapshot(),
+                    slatedb,
                 })
             }
             _ => Response::error("route not found", 404),
@@ -336,9 +392,11 @@ impl SlateDbObject {
 
 impl DurableObject for SlateDbObject {
     fn new(state: State, env: Env) -> Self {
+        let perf = Arc::new(PerfCounters::default());
         Self {
             env,
-            cache: Arc::new(DoCacheStorage::new(state.storage())),
+            cache: Arc::new(DoCacheStorage::new(state.storage(), Arc::clone(&perf))),
+            perf,
             active: Mutex::new(None),
         }
     }
@@ -352,6 +410,40 @@ impl DurableObject for SlateDbObject {
             .map(|response| response.with_status(500)),
         }
     }
+}
+
+fn slate_metrics(recorder: &DefaultMetricsRecorder) -> Vec<SlateMetric> {
+    recorder
+        .snapshot()
+        .all()
+        .iter()
+        .map(|metric| SlateMetric {
+            name: metric.name.clone(),
+            labels: metric.labels.clone(),
+            value: match &metric.value {
+                MetricValue::Counter(value) => SlateMetricValue::Counter { value: *value },
+                MetricValue::Gauge(value) => SlateMetricValue::Gauge { value: *value },
+                MetricValue::UpDownCounter(value) => {
+                    SlateMetricValue::UpDownCounter { value: *value }
+                }
+                MetricValue::Histogram {
+                    count,
+                    sum,
+                    min,
+                    max,
+                    boundaries,
+                    bucket_counts,
+                } => SlateMetricValue::Histogram {
+                    count: *count,
+                    sum: *sum,
+                    min: *min,
+                    max: *max,
+                    boundaries: boundaries.clone(),
+                    bucket_counts: bucket_counts.clone(),
+                },
+            },
+        })
+        .collect()
 }
 
 fn query(url: &Url, name: &str) -> Result<String> {
