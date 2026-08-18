@@ -137,15 +137,10 @@ impl LocalCacheEntry for DoCacheEntry {
             increment(&self.perf.cache_part_misses, 1);
             return Ok(None);
         };
-        let bytes = bytes.into_vec();
+        let bytes = Bytes::from(bytes.into_vec());
         increment(&self.perf.cache_part_hits, 1);
         increment(&self.perf.cache_loaded_bytes, bytes.len() as u64);
-        let Some(requested) = bytes.get(range_in_part) else {
-            increment(&self.perf.cache_errors, 1);
-            return Err(cache_message("cached part is shorter than requested range"));
-        };
-        increment(&self.perf.cache_returned_bytes, requested.len() as u64);
-        Ok(Some(Bytes::copy_from_slice(requested)))
+        cached_range(bytes, range_in_part, &self.perf)
     }
 
     async fn save_head(&self, meta: (&ObjectMeta, &Attributes)) -> Result<()> {
@@ -197,6 +192,15 @@ impl LocalCacheEntry for DoCacheEntry {
             }
         }
     }
+}
+
+fn cached_range(bytes: Bytes, range: Range<usize>, perf: &PerfCounters) -> Result<Option<Bytes>> {
+    if bytes.get(range.clone()).is_none() {
+        increment(&perf.cache_errors, 1);
+        return Err(cache_message("cached part is shorter than requested range"));
+    }
+    increment(&perf.cache_returned_bytes, range.len() as u64);
+    Ok(Some(bytes.slice(range)))
 }
 
 fn entry_prefix(location: &Path, part_size: usize) -> String {

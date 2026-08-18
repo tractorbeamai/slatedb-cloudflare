@@ -30,9 +30,16 @@ with the SQLite-backed object's hidden `__cf_kv` table. Parts are 64 KiB, below
 the platform's 2 MB combined key-and-value limit. Manifest, WAL, listing, and
 coordination operations bypass the cache and continue to use R2 directly.
 
-The Worker build disables SlateDB's separate decoded block cache because Foyer
-requires a filesystem and Moka reaches unsupported `std::time` behavior under
-workerd.
+SlateDB's decoded block, index, and filter cache uses a 4 MiB bounded
+`quick_cache`. This replaces the built-in Foyer and Moka implementations, which
+do not support the Worker runtime. An isolate eviction discards decoded entries;
+the persistent Durable Object cache refills them without reading SST data from
+R2.
+
+The Worker profile stays within the 128 MiB isolate limit by flushing 4 MiB L0
+SSTs, limiting unflushed data to 16 MiB, and serializing L0 flushes and
+compactions. Compaction outputs are capped at 4 MiB. These settings trade object
+storage traffic for predictable memory use on a single-threaded runtime.
 
 ## Compatibility patches
 
@@ -203,7 +210,9 @@ each database operation. In particular,
 while the cache hit rate and R2 operation deltas show whether a workload is
 actually exercising the persistent cache. SlateDB metrics expose L0 growth,
 backpressure, flushes, compactions, object-store calls, and cache behavior at the
-engine boundary.
+engine boundary. The balanced benchmark fails if a cumulative adapter counter
+decreases between warmup and measurement, because that proves the Durable Object
+was recreated during the run.
 
 Production tracing is enabled at a 10% sample rate in `wrangler.jsonc`. Cloudflare's automatic trace
 spans provide request CPU and wall time plus Durable Object, R2, and storage
@@ -258,35 +267,43 @@ events.
 
 ### Performance attribution result
 
-The August 18 instrumentation runs found that persistent-cache part size, not
-R2, limited SST point reads. With 1 MiB parts, the measured read-only phase
-loaded 5.61 GB from Durable Object storage to satisfy 265 MB requested by
-SlateDB: 21.18× byte amplification. Changing only the part size to 64 KiB
-loaded 8.63 GB for 2.12 GB requested, or 4.07×, while throughput increased from
-58.55 to 539.47 gets/s (9.21×).
+The August 18 instrumentation runs first isolated the persistent SST cache. With
+1 MiB parts, a read-only phase loaded 5.61 GB from Durable Object storage to
+satisfy 265 MB requested by SlateDB: 21.18× byte amplification. Changing only
+the part size to 64 KiB reduced amplification to 4.07× and increased throughput
+from 58.55 to 539.47 gets/s. A 32 KiB part reduced byte amplification again but
+fell to 446.86 gets/s because each lookup needed more Storage API operations.
+The retained 64 KiB part size is the measured balance between bytes and calls.
 
 | Workload | Clients × batch | Measured rate | Result |
 | --- | ---: | ---: | --- |
 | Read-only, 1 MiB parts | 64 × 32 | 58.55 gets/s | [JSON](benchmarks/live-perf-read-only-2026-08-18.json) |
 | Read-only, 64 KiB parts | 64 × 32 | 539.47 gets/s | [JSON](benchmarks/live-perf-read-only-64k-2026-08-18.json) |
-| 50/50, 64 KiB parts | 64 × 32 | 14,583.48 ops/s | [JSON](benchmarks/live-perf-balanced-64k-2026-08-18.json) |
-| Write-only, 64 KiB parts | 8 × 32 | 11,688.83 puts/s | [JSON](benchmarks/live-perf-write-only-c8-64k-2026-08-18.json) |
-| Write-only, 64 KiB parts | 64 × 4 | 8,910.31 puts/s | [JSON](benchmarks/live-perf-write-only-c64-b4-64k-2026-08-18.json) |
+| Read-only, 32 KiB parts | 64 × 32 | 446.86 gets/s | [JSON](benchmarks/live-perf-read-only-32k-2026-08-18.json) |
+| Read-only, decoded cache | 64 × 32 | 26,130.25 gets/s | [JSON](benchmarks/live-perf-read-only-stable-cache-2026-08-18.json) |
+| 50/50 with compaction | 64 × 4 | 5,330.66 ops/s | [JSON](benchmarks/live-perf-balanced-stable-cache-2026-08-18.json) |
 
-These are 30- or 60-second attribution runs, not replacements for the full
-SlateDB release benchmark. The short 50/50 rate benefits from updates and hot
-reads remaining in memory; its 10,000-record working set is also far smaller
-than SlateDB's roughly 120 GiB release dataset. A 64-client write-only run with
-32 operations per client reset the Durable Object with an incomplete promise;
-reducing the request to four operations per client completed. This identifies
-per-request work size and the single-threaded Worker runtime as the write-side
-limit to investigate next.
+The decoded cache removes the persistent Storage API from hot point reads. A
+32 MiB decoded cache peaked at 32,705.60 gets/s, but 8 MiB and larger cache
+profiles reset the isolate during sustained writes and compaction. The retained
+4 MiB profile completed a 60-second 50/50 run without a counter regression. It
+processed 160,062 gets and 160,194 puts, claimed five compaction jobs, compacted
+15.27 MB, and wrote seven SSTs. The read-only cost of the stable profile was
+20.1% relative to the unsafe 32 MiB peak.
 
-The current read ceiling still performs about four Durable Object part reads
-per point lookup and materializes roughly four bytes for every byte SlateDB
-requests. The next useful experiment is a 16 or 32 KiB part size; an in-memory
-decoded-block cache would be a larger architectural change and is intentionally
-not hidden inside this adapter.
+The rejected profiles exhausted the effective headroom under Cloudflare's 128
+MiB isolate limit even though their configured cache and memtable payload
+budgets summed to much less. Those budgets exclude decoded-entry overhead,
+indexes, WAL and immutable memtables, compaction inputs and outputs, request
+data, the WASM runtime, and allocator fragmentation. Cloudflare reported the
+terminated request as an incomplete promise with only milliseconds of CPU time;
+monotonic telemetry was needed to distinguish the isolate recreation from a
+successful recovery.
+
+These are 30- or 60-second attribution runs, not replacements for SlateDB's
+full release benchmark. The working set is 10,000 records rather than roughly
+120 GiB, and the stable mixed run uses four operations per control request to
+bound request memory.
 
 ## Checks
 
@@ -327,8 +344,8 @@ Workers plan.
 ## Known limits
 
 - Background work shares a single JavaScript event loop.
-- Reads have no decoded block cache. Compacted SST reads use the persistent
-  Durable Object cache.
+- The decoded cache is deliberately limited to 4 MiB so foreground traffic,
+  flushing, and compaction fit within the 128 MiB isolate limit.
 - The proof has no automatic cache eviction. Cache entries remain until SlateDB
   deletes the corresponding SST or the test endpoint clears the object storage.
 - The R2 adapter currently materializes each requested object range before

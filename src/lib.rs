@@ -4,16 +4,21 @@ use futures::{future::try_join_all, lock::Mutex};
 use serde::{Deserialize, Serialize};
 use slatedb::Db;
 use slatedb::cached_object_store::CachedObjectStore;
-use slatedb::config::{FlushOptions, FlushType, MetricLevel, PutOptions, Settings, WriteOptions};
+use slatedb::config::{
+    CompactionWorkerOptions, CompactorOptions, FlushOptions, FlushType, MetricLevel, PutOptions,
+    Settings, WriteOptions,
+};
 use slatedb::object_store::ObjectStore;
 use slatedb::object_store::prefix::PrefixStore;
 use slatedb_common::metrics::{DefaultMetricsRecorder, MetricValue};
 use worker::*;
 
+mod db_cache;
 mod do_cache;
 mod perf;
 mod r2_store;
 
+use db_cache::QuickDbCache;
 use do_cache::DoCacheStorage;
 use perf::{PerfCounters, PerfSnapshot};
 use r2_store::R2Store;
@@ -210,9 +215,25 @@ impl SlateDbObject {
         )
         .await
         .map_err(slatedb_error)?;
+        let worker = CompactionWorkerOptions {
+            max_concurrent_compactions: 1,
+            max_sst_size: 4 * 1024 * 1024,
+            max_fetch_tasks: 1,
+            max_subcompactions: 1,
+            ..CompactionWorkerOptions::default()
+        };
+        let compactor = CompactorOptions {
+            max_concurrent_compactions: 1,
+            worker: Some(worker),
+            ..CompactorOptions::default()
+        };
         let db = Db::builder(DB_ROOT, cached)
-            .with_db_cache_disabled()
+            .with_db_cache(Arc::new(QuickDbCache::new()))
             .with_settings(Settings {
+                l0_sst_size_bytes: 4 * 1024 * 1024,
+                l0_flush_parallelism: 1,
+                max_unflushed_bytes: 16 * 1024 * 1024,
+                compactor_options: Some(compactor),
                 metric_level: MetricLevel::Debug,
                 ..Settings::default()
             })

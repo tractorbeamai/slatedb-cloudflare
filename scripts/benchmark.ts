@@ -150,12 +150,15 @@ async function runDefault(): Promise<void> {
 
 async function runSlatedbBalanced(): Promise<void> {
   results.push(await seedBalanced());
+  console.error("seed complete");
   if (results.at(-1)?.errors) await finish(results);
   await prepareSeededDatabases();
+  console.error("database preparation complete");
   await captureTelemetry("beforeWarmup");
 
   const selectRecord = scrambledZipfianSampler(config.records, 0.99);
   await runBalancedFor(config.warmupSeconds * 1_000, selectRecord);
+  console.error("warmup complete");
   await captureTelemetry("afterWarmup");
 
   const started = performance.now();
@@ -164,17 +167,36 @@ async function runSlatedbBalanced(): Promise<void> {
     selectRecord,
   );
   const elapsed = performance.now() - started;
+  console.error("measurement complete");
   results.push(
     summarizeEmbedded("balanced-get", measurements.get, elapsed),
     summarizeEmbedded("balanced-put", measurements.put, elapsed),
   );
   await captureTelemetry("afterMeasurement");
+  assertNoObjectReset("afterWarmup", "afterMeasurement");
+  console.error("measurement telemetry captured");
   results.push(
     await runCounted("durability-drain", databases.length, async (index) => {
       await admin(databases[index], "flush");
     }),
   );
+  console.error("durability drain complete");
   await captureTelemetry("afterDurabilityDrain");
+}
+
+function assertNoObjectReset(before: string, after: string): void {
+  for (let index = 0; index < databases.length; index++) {
+    const previous = telemetry[before]?.[index]?.adapter;
+    const current = telemetry[after]?.[index]?.adapter;
+    if (!previous || !current) throw new Error("benchmark telemetry is incomplete");
+    for (const [counter, value] of Object.entries(previous)) {
+      if ((current[counter] ?? 0) < value) {
+        throw new Error(
+          `Durable Object reset during measurement: ${counter} fell from ${value} to ${current[counter] ?? 0}`,
+        );
+      }
+    }
+  }
 }
 
 async function captureTelemetry(checkpoint: string): Promise<void> {
