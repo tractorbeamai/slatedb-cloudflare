@@ -106,6 +106,50 @@ PROBE_TOKEN=replace-with-a-local-token bun run smoke
 Local R2 and Durable Object state is stored under the ignored `.wrangler/`
 directory.
 
+## Benchmark
+
+Start the local Worker with per-request logging suppressed, then execute the
+bounded benchmark suite in another terminal:
+
+```sh
+bun run dev -- --log-level error
+
+PROBE_TOKEN=replace-with-a-local-token bun run benchmark
+```
+
+The default run seeds 1,000 1 KiB values per logical database with eight
+closed-loop clients. It then reports cache-fill reads, warm-cache reads, durable
+writes, and a 50/50 read/write workload. Timed phases use a three-second warmup
+followed by 15 seconds of measured activity. Results include operations per
+second, errors, and p50/p95/p99/max request latency.
+
+Environment variables configure the workload:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `BASE_URL` | `http://localhost:8787` | Local or deployed Worker URL |
+| `BENCH_DATABASES` | `1` | Logical databases and Durable Objects |
+| `BENCH_RECORDS` | `1000` | Seed records per database |
+| `BENCH_VALUE_BYTES` | `1024` | UTF-8 value size |
+| `BENCH_CONCURRENCY` | `8` | Total closed-loop clients |
+| `BENCH_WARMUP_SECONDS` | `3` | Unmeasured warmup per timed phase |
+| `BENCH_DURATION_SECONDS` | `15` | Measured time per timed phase |
+| `BENCH_OUTPUT` | `table` | `table` or machine-readable `json` |
+
+Use one database to measure the ceiling of a single serialized Durable Object.
+Increase `BENCH_DATABASES` to measure horizontal scaling across independent
+objects. Cloudflare documents each object as inherently single-threaded with a
+[soft limit of 1,000 requests per second](https://developers.cloudflare.com/durable-objects/platform/limits/).
+Each run uses new database names and
+leaves its R2 and Durable Object data in place; choose record counts accordingly
+for a live deployment.
+
+These HTTP results include the client network path, outer Worker, Durable
+Object, SlateDB, cache, and R2. They are not directly comparable to SlateDB's
+[native release suite](https://slatedb.io/docs/operations/benchmarks/), which
+uses a 120 GiB shared database, 64 clients, a
+five-minute warmup, and 15-minute workloads.
+
 ## Checks
 
 ```sh
