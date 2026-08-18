@@ -1,0 +1,85 @@
+{
+  "generatedAt": "2026-08-18T03:21:23.380Z",
+  "workerVersion": "37d9a72d-d804-44fe-8994-5b917275381c",
+  "config": {
+    "baseUrl": "https://slatedb-cloudflare-feasibility.tractorbeamai.workers.dev",
+    "token": "<redacted>",
+    "profile": "slatedb-balanced",
+    "databasePrefix": "live-embedded-balanced-final-20260818",
+    "databases": 1,
+    "records": 10000,
+    "valueBytes": 400,
+    "concurrency": 64,
+    "durationSeconds": 900,
+    "warmupSeconds": 300,
+    "batchSize": 32,
+    "output": "json"
+  },
+  "measurement": {
+    "latencyBoundary": "SlateDB Db call inside the Durable Object",
+    "throughputBoundary": "external client over batched requests",
+    "deployedClock": "unavailable when no I/O advances the Worker clock; reported as null"
+  },
+  "results": [
+    {
+      "phase": "seed-write",
+      "operations": 10000,
+      "errors": 0,
+      "seconds": 2.65,
+      "operationsPerSecond": 3770.02,
+      "unmeasurableOperations": 10000,
+      "p1Ms": null,
+      "p50Ms": null,
+      "p95Ms": null,
+      "p99Ms": null,
+      "p999Ms": null,
+      "maxMs": null,
+      "errorSamples": []
+    },
+    {
+      "phase": "balanced-get",
+      "operations": 1066341,
+      "errors": 0,
+      "seconds": 901.54,
+      "operationsPerSecond": 1182.8,
+      "unmeasurableOperations": 1065549,
+      "p1Ms": null,
+      "p50Ms": null,
+      "p95Ms": null,
+      "p99Ms": null,
+      "p999Ms": null,
+      "maxMs": null,
+      "errorSamples": []
+    },
+    {
+      "phase": "balanced-put",
+      "operations": 1067675,
+      "errors": 0,
+      "seconds": 901.54,
+      "operationsPerSecond": 1184.27,
+      "unmeasurableOperations": 1067675,
+      "p1Ms": null,
+      "p50Ms": null,
+      "p95Ms": null,
+      "p99Ms": null,
+      "p999Ms": null,
+      "maxMs": null,
+      "errorSamples": []
+    },
+    {
+      "phase": "durability-drain",
+      "operations": 1,
+      "errors": 0,
+      "seconds": 0.48,
+      "operationsPerSecond": 2.06,
+      "unmeasurableOperations": 0,
+      "p1Ms": 484.23,
+      "p50Ms": 484.23,
+      "p95Ms": 484.23,
+      "p99Ms": 484.23,
+      "p999Ms": 484.23,
+      "maxMs": 484.23,
+      "errorSamples": []
+    }
+  ]
+}

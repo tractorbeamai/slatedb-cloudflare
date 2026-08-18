@@ -1304,6 +1304,7 @@ dependencies = [
  "serde_json",
  "slatedb",
  "uuid",
+ "web-time",
  "worker",
 ]
 

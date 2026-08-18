@@ -70,14 +70,14 @@ Health checks are public. All `/v1` routes require
 | `POST` | `/v1/db/:db/admin/reopen` | — |
 | `POST` | `/v1/db/:db/admin/flush` | — |
 | `POST` | `/v1/db/:db/admin/cache/clear` | — |
-| `POST` | `/v1/db/:db/admin/benchmark/put` | `{"key":"k","value":"v"}` |
+| `POST` | `/v1/db/:db/admin/benchmark/batch` | `{"value":"v","clients":[[{"operation":"get","key":"k"}]]}` |
 | `GET` | `/v1/db/:db/stats` | — |
 
 The example API accepts UTF-8 keys and values. SlateDB itself stores bytes.
 The admin endpoints and cache-populated status exist only to exercise R2
-recovery, persistent cache behavior, and release-style benchmarks. The
-benchmark write endpoint is the only route that acknowledges before remote
-durability; normal writes remain durability-acknowledged.
+recovery, persistent cache behavior, and release-style benchmarks. Benchmark
+writes use SlateDB's non-blocking write option to match its release suite;
+normal writes remain durability-acknowledged.
 
 ## Run locally
 
@@ -120,11 +120,11 @@ bun run dev -- --log-level error
 PROBE_TOKEN=replace-with-a-local-token bun run benchmark
 ```
 
-The default run seeds 1,000 1 KiB values per logical database with eight
+The default profile seeds 1,000 1 KiB values per logical database with eight
 closed-loop clients. It then reports cache-fill reads, warm-cache reads, durable
 writes, and a 50/50 read/write workload. Timed phases use a three-second warmup
 followed by 15 seconds of measured activity. Results include operations per
-second, errors, and p1/p50/p95/p99/p99.9/max request latency.
+second, errors, and p1/p50/p95/p99/p99.9/max end-to-end HTTP latency.
 
 Environment variables configure the workload:
 
@@ -138,6 +138,7 @@ Environment variables configure the workload:
 | `BENCH_CONCURRENCY` | `8` | Total closed-loop clients |
 | `BENCH_WARMUP_SECONDS` | `3` | Unmeasured warmup per timed phase |
 | `BENCH_DURATION_SECONDS` | `15` | Measured time per timed phase |
+| `BENCH_BATCH_SIZE` | `1` or `32` | Operations per request; balanced profile uses `32` |
 | `BENCH_OUTPUT` | `table` | `table` or machine-readable `json` |
 
 Use one database to measure the ceiling of a single serialized Durable Object.
@@ -148,16 +149,16 @@ Each run uses new database names and
 leaves its R2 and Durable Object data in place; choose record counts accordingly
 for a live deployment.
 
-These HTTP results include the client network path, outer Worker, Durable
-Object, SlateDB, cache, and R2. They are not directly comparable to SlateDB's
-[native release suite](https://slatedb.io/docs/operations/benchmarks/), which
-uses a 120 GiB shared database, 64 clients, a
-five-minute warmup, and 15-minute workloads.
-
-The `slatedb-balanced` profile reproduces the release suite's 64 closed-loop
-clients, 400-byte values, scrambled-Zipfian 0.99 key selection, equal point-read
-and update mix, five-minute warmup, 15-minute measurement, non-blocking
-application writes, and final durability drain:
+The `slatedb-balanced` profile targets SlateDB's embedded-library measurement
+boundary. Each control request carries 64 independent client streams, which the
+Durable Object runs concurrently against one `Db`. Timing inside the object
+brackets only `Db::get` or `Db::put_with_options`; authentication, outer Worker
+routing, Durable Object dispatch, request decoding, and response encoding are
+outside that interval. It uses 64 closed-loop clients, 400-byte
+values, scrambled-Zipfian 0.99 key selection, an equal point-read and update
+mix, a five-minute warmup, a 15-minute measurement, non-blocking application
+writes, and a final durability drain to match SlateDB's
+[native release suite](https://slatedb.io/docs/operations/benchmarks/):
 
 ```sh
 BASE_URL=https://slatedb-cloudflare-feasibility.<subdomain>.workers.dev \
@@ -167,29 +168,49 @@ BASE_URL=https://slatedb-cloudflare-feasibility.<subdomain>.workers.dev \
   bun run benchmark
 ```
 
-The bounded profile seeds 10,000 records rather than SlateDB's 300 million
-record, roughly 120 GiB release dataset. Increase `BENCH_RECORDS` only after
+The profile seeds 10,000 records rather than SlateDB's 300 million-record,
+roughly 120 GiB release dataset. Increase `BENCH_RECORDS` only after
 accounting for R2, Durable Object storage, and request costs.
 
-### Live balanced result
+Cloudflare deliberately freezes `performance.now()` and `Date.now()` between
+I/O events in deployed Workers. This prevents code inside the Durable Object
+from observing the elapsed time of an individual embedded database call.
+Consequently, deployed embedded-operation p1/p50/p99/p99.9 values are reported
+as `null`, with `unmeasurableOperations` recording the affected samples. A zero
+would be a platform clock artifact, not a sub-nanosecond SlateDB result. See
+[Workers performance timers](https://developers.cloudflare.com/workers/runtime-apis/performance/)
+and the [Workers security model](https://developers.cloudflare.com/workers/reference/security-model/#step-1-disallow-timers-and-multi-threading).
 
-The committed [August 17, 2026 result](benchmarks/live-slatedb-balanced-2026-08-17.json)
-ran Worker version `34aab9c5-d72c-42ec-9336-84f592a30c44` against the deployed
-Worker, Durable Object, and R2 bucket. It completed 548,648 measured operations
-with no errors:
+Aggregate throughput is measured by the external client over the complete
+measurement interval. Batching amortizes the network and routing path but does
+not eliminate request scheduling and serialization overhead, so throughput is
+an approximate embedded comparison. The working set is also much smaller than
+the release suite's 120 GiB dataset.
 
-| API | avg/s | p1 | p50 | p99 | p99.9 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `get` | 304.55 | 52.46 ms | 90.20 ms | 308.26 ms | 493.87 ms |
-| `put` | 305.03 | 54.00 ms | 90.04 ms | 300.14 ms | 442.58 ms |
+### Live embedded result
 
-SlateDB 0.15.0's official balanced result reports 6,215.61 gets/s and 6,210.21
-puts/s. Its direct in-process API has 0.048 ms median get latency and 0.013 ms
-median put latency. The deployed HTTP result therefore has about 20.4 times
-lower aggregate throughput. It includes public HTTPS, authentication, Worker
-routing, and Durable Object dispatch, which the direct benchmark does not.
-The much smaller working set also favors this proof, so this result demonstrates
-feasibility rather than performance parity.
+The committed [August 18, 2026 result](benchmarks/live-embedded-balanced-2026-08-18.json)
+ran Worker version `37d9a72d-d804-44fe-8994-5b917275381c` for the full
+five-minute warmup and 15-minute measurement. It completed 2,134,016 measured
+operations with no errors:
+
+| Operation | Operations | avg/s | p1 | p50 | p99 | p99.9 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `get` | 1,066,341 | 1,182.80 | unavailable | unavailable | unavailable | unavailable |
+| `put` | 1,067,675 | 1,184.27 | unavailable | unavailable | unavailable | unavailable |
+
+The aggregate rate was 2,367.07 operations/s. SlateDB 0.15.0's
+[official balanced result](https://benchmark.slatedb.io/0.15.0/run/github-30489389676/workload/balanced/)
+reports 12,425.82 operations/s: 6,215.61 gets/s and 6,210.21 puts/s. The
+Cloudflare proof reached 19.05% of that aggregate throughput. The different
+CPU, object-store path, cache, and 10,000-record working set prevent a
+hardware-normalized comparison.
+
+The official suite reports get p1/p50/p99/p99.9 of
+0.010/0.048/51.199/91.839 ms and put values of
+0.005/0.013/0.039/0.075 ms. Those latency values are the valid reference until
+Cloudflare exposes a production timer that can measure computation between I/O
+events.
 
 ## Checks
 

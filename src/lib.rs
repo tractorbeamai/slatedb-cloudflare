@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures::lock::Mutex;
+use futures::{future::try_join_all, lock::Mutex};
 use serde::{Deserialize, Serialize};
 use slatedb::Db;
 use slatedb::cached_object_store::CachedObjectStore;
@@ -30,6 +30,39 @@ struct PutRequest {
 #[derive(Debug, Deserialize)]
 struct KeyRequest {
     key: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct BenchmarkBatchRequest {
+    value: String,
+    clients: Vec<Vec<BenchmarkOperation>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum BenchmarkOperationKind {
+    Get,
+    Put,
+}
+
+#[derive(Debug, Deserialize)]
+struct BenchmarkOperation {
+    operation: BenchmarkOperationKind,
+    key: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BenchmarkOperationMeasurements {
+    operations: u64,
+    unmeasurable_operations: u64,
+    measurable_latency_ns: Vec<u64>,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct BenchmarkBatchResponse {
+    get: BenchmarkOperationMeasurements,
+    put: BenchmarkOperationMeasurements,
 }
 
 #[derive(Debug, Serialize)]
@@ -188,22 +221,33 @@ impl SlateDbObject {
                     .map_err(slatedb_error)?;
                 Response::from_json(&OkResponse { ok: true })
             }
-            (Method::Post, ["admin", "benchmark", "put"]) => {
-                let body: PutRequest = req.json().await?;
-                self.database(database)
-                    .await?
-                    .put_with_options(
-                        body.key.as_bytes(),
-                        body.value.as_bytes(),
-                        &PutOptions::default(),
-                        &WriteOptions {
-                            await_durable: false,
-                            ..WriteOptions::default()
-                        },
-                    )
-                    .await
-                    .map_err(slatedb_error)?;
-                Response::from_json(&OkResponse { ok: true })
+            (Method::Post, ["admin", "benchmark", "batch"]) => {
+                let body: BenchmarkBatchRequest = req.json().await?;
+                if body.clients.is_empty()
+                    || body.clients.len() > 256
+                    || body
+                        .clients
+                        .iter()
+                        .any(|operations| operations.is_empty() || operations.len() > 512)
+                {
+                    return Response::error(
+                        "benchmark batch must contain 1 to 256 clients with 1 to 512 operations each",
+                        400,
+                    );
+                }
+                let db = self.database(database).await?;
+                let value = body.value.into_bytes();
+                let client_measurements =
+                    try_join_all(body.clients.into_iter().map(|operations| {
+                        run_benchmark_client(db.clone(), operations, value.as_slice())
+                    }))
+                    .await?;
+                let mut measurements = BenchmarkBatchResponse::default();
+                for client in client_measurements {
+                    measurements.get.merge(client.get);
+                    measurements.put.merge(client.put);
+                }
+                Response::from_json(&measurements)
             }
             (Method::Get, ["get"]) => {
                 let key = query(&url, "key")?;
@@ -319,4 +363,67 @@ fn query(url: &Url, name: &str) -> Result<String> {
 
 fn slatedb_error(error: slatedb::Error) -> Error {
     Error::RustError(format!("SlateDB: {error}"))
+}
+
+fn elapsed_ns(started: web_time::Instant) -> u64 {
+    started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64
+}
+
+async fn run_benchmark_client(
+    db: Db,
+    operations: Vec<BenchmarkOperation>,
+    value: &[u8],
+) -> Result<BenchmarkBatchResponse> {
+    let mut measurements = BenchmarkBatchResponse::default();
+    let put_options = PutOptions::default();
+    let write_options = WriteOptions {
+        await_durable: false,
+        ..WriteOptions::default()
+    };
+    for operation in operations {
+        let started = web_time::Instant::now();
+        match operation.operation {
+            BenchmarkOperationKind::Get => {
+                let found = db
+                    .get(operation.key.as_bytes())
+                    .await
+                    .map_err(slatedb_error)?;
+                let latency_ns = elapsed_ns(started);
+                if found.is_none() {
+                    return Err(Error::RustError("benchmark key not found".to_owned()));
+                }
+                measurements.get.record(latency_ns);
+            }
+            BenchmarkOperationKind::Put => {
+                db.put_with_options(
+                    operation.key.as_bytes(),
+                    value,
+                    &put_options,
+                    &write_options,
+                )
+                .await
+                .map_err(slatedb_error)?;
+                measurements.put.record(elapsed_ns(started));
+            }
+        }
+    }
+    Ok(measurements)
+}
+
+impl BenchmarkOperationMeasurements {
+    fn record(&mut self, latency_ns: u64) {
+        self.operations += 1;
+        if latency_ns == 0 {
+            self.unmeasurable_operations += 1;
+        } else {
+            self.measurable_latency_ns.push(latency_ns);
+        }
+    }
+
+    fn merge(&mut self, mut other: Self) {
+        self.operations += other.operations;
+        self.unmeasurable_operations += other.unmeasurable_operations;
+        self.measurable_latency_ns
+            .append(&mut other.measurable_latency_ns);
+    }
 }

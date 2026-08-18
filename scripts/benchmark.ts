@@ -21,11 +21,13 @@ type Config = {
   concurrency: number;
   durationSeconds: number;
   warmupSeconds: number;
+  batchSize: number;
   output: "table" | "json";
 };
 
 type Sample = {
   latencyMs: number;
+  measurable?: boolean;
   error?: string;
 };
 
@@ -35,13 +37,30 @@ type Result = {
   errors: number;
   seconds: number;
   operationsPerSecond: number;
-  p1Ms: number;
-  p50Ms: number;
-  p95Ms: number;
-  p99Ms: number;
-  p999Ms: number;
-  maxMs: number;
+  unmeasurableOperations: number;
+  p1Ms: number | null;
+  p50Ms: number | null;
+  p95Ms: number | null;
+  p99Ms: number | null;
+  p999Ms: number | null;
+  maxMs: number | null;
   errorSamples: string[];
+};
+
+type BenchmarkOperation = {
+  operation: "get" | "put";
+  key: string;
+};
+
+type BenchmarkBatchResponse = {
+  get: EmbeddedMeasurements;
+  put: EmbeddedMeasurements;
+};
+
+type EmbeddedMeasurements = {
+  operations: number;
+  unmeasurableOperations: number;
+  measurableLatencyNs: number[];
 };
 
 const config = readConfig();
@@ -115,55 +134,62 @@ async function runDefault(): Promise<void> {
 }
 
 async function runSlatedbBalanced(): Promise<void> {
-  results.push(
-    await runCounted(
-      "seed-write",
-      config.databases * config.records,
-      putBenchmarkSeed,
-    ),
-  );
+  results.push(await seedBalanced());
   if (results.at(-1)?.errors) finish(results);
   await prepareSeededDatabases();
 
   const selectRecord = scrambledZipfianSampler(config.records, 0.99);
-  const operation = async (
-    _client: number,
-    random: () => number,
-  ): Promise<"get" | "put"> => {
-    const database = databases[Math.floor(random() * databases.length)];
-    const key = seedKey(selectRecord(random));
-    if (random() < 0.5) {
-      await get(database, key);
-      return "get";
-    }
-    await benchmarkPut(database, key);
-    return "put";
-  };
-
-  const warmup = await runBalancedFor(config.warmupSeconds * 1_000, operation);
-  const warmupError = warmup.find((entry) => entry.error)?.error;
-  if (warmupError) throw new Error(`balanced warmup failed: ${warmupError}`);
+  await runBalancedFor(config.warmupSeconds * 1_000, selectRecord);
 
   const started = performance.now();
-  const samples = await runBalancedFor(config.durationSeconds * 1_000, operation);
+  const measurements = await runBalancedFor(
+    config.durationSeconds * 1_000,
+    selectRecord,
+  );
   const elapsed = performance.now() - started;
   results.push(
-    summarize(
-      "balanced-get",
-      samples.filter((entry) => entry.operation === "get"),
-      elapsed,
-    ),
-    summarize(
-      "balanced-put",
-      samples.filter((entry) => entry.operation === "put"),
-      elapsed,
-    ),
+    summarizeEmbedded("balanced-get", measurements.get, elapsed),
+    summarizeEmbedded("balanced-put", measurements.put, elapsed),
   );
   results.push(
     await runCounted("durability-drain", databases.length, async (index) => {
       await admin(databases[index], "flush");
     }),
   );
+}
+
+async function seedBalanced(): Promise<Result> {
+  const started = performance.now();
+  const measurements = emptyEmbeddedMeasurements();
+  for (const databaseMeasurements of await Promise.all(
+    databases.map(seedBalancedDatabase),
+  )) {
+    mergeEmbedded(measurements, databaseMeasurements);
+  }
+  return summarizeEmbedded(
+    "seed-write",
+    measurements,
+    performance.now() - started,
+  );
+}
+
+async function seedBalancedDatabase(
+  database: string,
+): Promise<EmbeddedMeasurements> {
+  const measurements = emptyEmbeddedMeasurements();
+  let next = 0;
+  while (next < config.records) {
+    const clients = Array.from({ length: config.concurrency }, () => {
+      const operations: BenchmarkOperation[] = [];
+      while (operations.length < config.batchSize && next < config.records) {
+        operations.push({ operation: "put", key: seedKey(next++) });
+      }
+      return operations;
+    }).filter((operations) => operations.length > 0);
+    const response = await benchmarkBatch(database, clients);
+    mergeEmbedded(measurements, response.put);
+  }
+  return measurements;
 }
 
 async function prepareSeededDatabases(): Promise<void> {
@@ -178,12 +204,6 @@ async function putSeed(index: number): Promise<void> {
   const databaseIndex = index % databases.length;
   const record = Math.floor(index / databases.length);
   await put(databases[databaseIndex], seedKey(record));
-}
-
-async function putBenchmarkSeed(index: number): Promise<void> {
-  const databaseIndex = index % databases.length;
-  const record = Math.floor(index / databases.length);
-  await benchmarkPut(databases[databaseIndex], seedKey(record));
 }
 
 async function getSeed(index: number): Promise<void> {
@@ -208,11 +228,15 @@ async function put(database: string, key: string): Promise<void> {
   });
 }
 
-async function benchmarkPut(database: string, key: string): Promise<void> {
-  await request(`/v1/db/${database}/admin/benchmark/put`, {
+async function benchmarkBatch(
+  database: string,
+  clients: BenchmarkOperation[][],
+): Promise<BenchmarkBatchResponse> {
+  const response = await request(`/v1/db/${database}/admin/benchmark/batch`, {
     method: "POST",
-    body: JSON.stringify({ key, value }),
+    body: JSON.stringify({ clients, value }),
   });
+  return response.json() as Promise<BenchmarkBatchResponse>;
 }
 
 async function get(database: string, key: string): Promise<void> {
@@ -294,26 +318,37 @@ async function runFor(
 
 async function runBalancedFor(
   durationMs: number,
-  operation: (
-    client: number,
-    random: () => number,
-  ) => Promise<"get" | "put">,
-): Promise<Array<Sample & { operation: "get" | "put" }>> {
+  selectRecord: (random: () => number) => number,
+): Promise<BenchmarkBatchResponse> {
   const deadline = performance.now() + durationMs;
-  const samples: Array<Sample & { operation: "get" | "put" }> = [];
-  await Promise.all(
-    Array.from({ length: config.concurrency }, async (_, client) => {
-      const random = randomGenerator(client + 1);
-      while (performance.now() < deadline) {
-        let operationName: "get" | "put" = "get";
-        const result = await sample(async () => {
-          operationName = await operation(client, random);
-        });
-        samples.push({ ...result, operation: operationName });
-      }
-    }),
+  const measurements = emptyBenchmarkResponse();
+  const randoms = Array.from({ length: config.concurrency }, (_, client) =>
+    randomGenerator(client + 1),
   );
-  return samples;
+  while (performance.now() < deadline) {
+    const clientsByDatabase = databases.map(() => [] as BenchmarkOperation[][]);
+    for (const random of randoms) {
+      const databaseIndex = Math.floor(random() * databases.length);
+      clientsByDatabase[databaseIndex].push(
+        Array.from({ length: config.batchSize }, () => ({
+          operation: random() < 0.5 ? ("get" as const) : ("put" as const),
+          key: seedKey(selectRecord(random)),
+        })),
+      );
+    }
+    const responses = await Promise.all(
+      databases.flatMap((database, index) =>
+        clientsByDatabase[index].length > 0
+          ? [benchmarkBatch(database, clientsByDatabase[index])]
+          : [],
+      ),
+    );
+    for (const response of responses) {
+      mergeEmbedded(measurements.get, response.get);
+      mergeEmbedded(measurements.put, response.put);
+    }
+  }
+  return measurements;
 }
 
 async function sample(operation: () => Promise<void>): Promise<Sample> {
@@ -330,10 +365,15 @@ async function sample(operation: () => Promise<void>): Promise<Sample> {
 }
 
 function summarize(phase: Phase, samples: Sample[], elapsedMs: number): Result {
-  const successful = samples
-    .filter((entry) => !entry.error)
+  const successfulSamples = samples.filter((entry) => !entry.error);
+  const successful = successfulSamples
     .map((entry) => entry.latencyMs)
     .sort((left, right) => left - right);
+  const unmeasurableOperations = successfulSamples.filter(
+    (entry) => entry.measurable === false,
+  ).length;
+  const latency = (quantile: number): number | null =>
+    unmeasurableOperations > 0 ? null : round(percentile(successful, quantile));
   const errors = samples.filter((entry) => entry.error);
   const seconds = elapsedMs / 1_000;
   return {
@@ -342,17 +382,76 @@ function summarize(phase: Phase, samples: Sample[], elapsedMs: number): Result {
     errors: errors.length,
     seconds: round(seconds),
     operationsPerSecond: round(samples.length / seconds),
-    p1Ms: round(percentile(successful, 0.01)),
-    p50Ms: round(percentile(successful, 0.5)),
-    p95Ms: round(percentile(successful, 0.95)),
-    p99Ms: round(percentile(successful, 0.99)),
-    p999Ms: round(percentile(successful, 0.999)),
-    maxMs: round(successful.at(-1) ?? 0),
+    unmeasurableOperations,
+    p1Ms: latency(0.01),
+    p50Ms: latency(0.5),
+    p95Ms: latency(0.95),
+    p99Ms: latency(0.99),
+    p999Ms: latency(0.999),
+    maxMs:
+      unmeasurableOperations > 0 ? null : round(successful.at(-1) ?? 0),
     errorSamples: [...new Set(errors.flatMap((entry) => entry.error ?? []))].slice(
       0,
       5,
     ),
   };
+}
+
+function summarizeEmbedded(
+  phase: Phase,
+  measurements: EmbeddedMeasurements,
+  elapsedMs: number,
+): Result {
+  const latencyMs = measurements.measurableLatencyNs
+    .map((latencyNs) => latencyNs / 1_000_000)
+    .sort((left, right) => left - right);
+  const latency = (quantile: number): number | null =>
+    measurements.unmeasurableOperations > 0
+      ? null
+      : round(percentile(latencyMs, quantile));
+  const seconds = elapsedMs / 1_000;
+  return {
+    phase,
+    operations: measurements.operations,
+    errors: 0,
+    seconds: round(seconds),
+    operationsPerSecond: round(measurements.operations / seconds),
+    unmeasurableOperations: measurements.unmeasurableOperations,
+    p1Ms: latency(0.01),
+    p50Ms: latency(0.5),
+    p95Ms: latency(0.95),
+    p99Ms: latency(0.99),
+    p999Ms: latency(0.999),
+    maxMs:
+      measurements.unmeasurableOperations > 0
+        ? null
+        : round(latencyMs.at(-1) ?? 0),
+    errorSamples: [],
+  };
+}
+
+function emptyBenchmarkResponse(): BenchmarkBatchResponse {
+  return {
+    get: emptyEmbeddedMeasurements(),
+    put: emptyEmbeddedMeasurements(),
+  };
+}
+
+function emptyEmbeddedMeasurements(): EmbeddedMeasurements {
+  return {
+    operations: 0,
+    unmeasurableOperations: 0,
+    measurableLatencyNs: [],
+  };
+}
+
+function mergeEmbedded(
+  target: EmbeddedMeasurements,
+  source: EmbeddedMeasurements,
+): void {
+  target.operations += source.operations;
+  target.unmeasurableOperations += source.unmeasurableOperations;
+  target.measurableLatencyNs.push(...source.measurableLatencyNs);
 }
 
 function percentile(sorted: number[], quantile: number): number {
@@ -446,6 +545,7 @@ function readConfig(): Config {
       0,
       3_600,
     ),
+    batchSize: integer("BENCH_BATCH_SIZE", balanced ? 32 : 1, 1, 512),
     output,
   };
 }
@@ -477,6 +577,18 @@ function finish(phaseResults: Result[]): never {
   const report = {
     generatedAt: new Date().toISOString(),
     config: { ...config, token: "<redacted>" },
+    measurement:
+      config.profile === "slatedb-balanced"
+        ? {
+            latencyBoundary: "SlateDB Db call inside the Durable Object",
+            throughputBoundary: "external client over batched requests",
+            deployedClock:
+              "unavailable when no I/O advances the Worker clock; reported as null",
+          }
+        : {
+            latencyBoundary: "end-to-end HTTP request",
+            throughputBoundary: "external client over individual requests",
+          },
     results: phaseResults,
   };
   if (config.output === "json") {

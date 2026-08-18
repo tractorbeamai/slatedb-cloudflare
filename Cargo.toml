@@ -18,6 +18,7 @@ serde_bytes = "0.11.19"
 serde_json = "1.0.149"
 slatedb = { path = "vendor/slatedb", default-features = false }
 worker = "=0.8.5"
+web-time = "1.1.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3.4", features = ["wasm_js"] }
