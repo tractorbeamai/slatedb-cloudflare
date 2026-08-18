@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    env, io,
+    io,
     path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
@@ -14,7 +14,7 @@ use axum::{
     routing::{get, post},
 };
 use futures::future::try_join_all;
-use object_store::{ObjectStore, aws::AmazonS3Builder, prefix::PrefixStore};
+use object_store::{ObjectStore, prefix::PrefixStore};
 use serde::{Deserialize, Serialize};
 use slatedb::{
     Db,
@@ -27,27 +27,24 @@ use slatedb::{
 use slatedb_common::metrics::{DefaultMetricsRecorder, MetricValue};
 use tokio::sync::Mutex;
 
+mod binding_store;
+
+use binding_store::{BindingStore, BindingStoreCounters};
+
 const CACHE_ROOT: &str = "/var/cache/slatedb";
 const CACHE_BYTES: usize = 512 * 1024 * 1024;
 const MEMORY_CACHE_BYTES: u64 = 128 * 1024 * 1024;
 
 #[derive(Clone)]
 struct AppState {
-    config: Arc<Config>,
     active: Arc<Mutex<Option<ActiveDb>>>,
-}
-
-struct Config {
-    endpoint: String,
-    bucket: String,
-    access_key_id: String,
-    secret_access_key: String,
 }
 
 struct ActiveDb {
     name: String,
     db: Db,
     metrics: Arc<DefaultMetricsRecorder>,
+    adapter: Arc<BindingStoreCounters>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -193,7 +190,6 @@ async fn main() {
         .init();
 
     let state = AppState {
-        config: Arc::new(Config::from_env().unwrap_or_else(|error| panic!("{error}"))),
         active: Arc::new(Mutex::new(None)),
     };
     let app = Router::new()
@@ -222,22 +218,6 @@ async fn main() {
     close_active(&state).await;
 }
 
-impl Config {
-    fn from_env() -> Result<Self, String> {
-        let account_id = required_env("R2_ACCOUNT_ID")?;
-        Ok(Self {
-            endpoint: format!("https://{account_id}.r2.cloudflarestorage.com"),
-            bucket: required_env("R2_BUCKET")?,
-            access_key_id: required_env("R2_ACCESS_KEY_ID")?,
-            secret_access_key: required_env("R2_SECRET_ACCESS_KEY")?,
-        })
-    }
-}
-
-fn required_env(name: &str) -> Result<String, String> {
-    env::var(name).map_err(|_| format!("missing environment variable {name}"))
-}
-
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "ok": true, "service": "slatedb-cloudflare-container" }))
 }
@@ -253,22 +233,15 @@ async fn database(state: &AppState, name: &str) -> Result<Db, AppError> {
         }
         return Ok(current.db.clone());
     }
-    let opened = open_database(&state.config, name).await?;
+    let opened = open_database(name).await?;
     let db = opened.db.clone();
     *active = Some(opened);
     Ok(db)
 }
 
-async fn open_database(config: &Config, name: &str) -> Result<ActiveDb, AppError> {
-    let store = AmazonS3Builder::new()
-        .with_endpoint(&config.endpoint)
-        .with_region("auto")
-        .with_bucket_name(&config.bucket)
-        .with_access_key_id(&config.access_key_id)
-        .with_secret_access_key(&config.secret_access_key)
-        .with_virtual_hosted_style_request(false)
-        .build()
-        .map_err(AppError::internal)?;
+async fn open_database(name: &str) -> Result<ActiveDb, AppError> {
+    let adapter = Arc::new(BindingStoreCounters::default());
+    let store = BindingStore::new(Arc::clone(&adapter));
     let store: Arc<dyn ObjectStore> = Arc::new(PrefixStore::new(store, name));
     let metrics = Arc::new(DefaultMetricsRecorder::new());
     let cache_dir = cache_dir(name);
@@ -299,6 +272,7 @@ async fn open_database(config: &Config, name: &str) -> Result<ActiveDb, AppError
         name: name.to_owned(),
         db,
         metrics,
+        adapter,
     })
 }
 
@@ -395,7 +369,7 @@ async fn reopen(
     if let Some(current) = active.take() {
         current.db.close().await.map_err(AppError::internal)?;
     }
-    *active = Some(open_database(&state.config, &name).await?);
+    *active = Some(open_database(&name).await?);
     Ok(Json(OkResponse { ok: true }))
 }
 
@@ -414,7 +388,7 @@ async fn clear_cache(
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(AppError::internal(error)),
     }
-    *active = Some(open_database(&state.config, &name).await?);
+    *active = Some(open_database(&name).await?);
     Ok(Json(OkResponse { ok: true }))
 }
 
@@ -423,13 +397,19 @@ async fn stats(
     AxumPath(name): AxumPath<String>,
 ) -> Result<Json<StatusResponse>, AppError> {
     validate_database_name(&name)?;
-    let (open, slatedb) = state
+    let (open, adapter, slatedb) = state
         .active
         .lock()
         .await
         .as_ref()
-        .map(|active| (true, slate_metrics(&active.metrics)))
-        .unwrap_or((false, Vec::new()));
+        .map(|active| {
+            (
+                true,
+                active.adapter.snapshot(),
+                slate_metrics(&active.metrics),
+            )
+        })
+        .unwrap_or((false, BTreeMap::new(), Vec::new()));
     let cache_storage_bytes = directory_size(&cache_dir(&name))
         .await
         .map_err(AppError::internal)?;
@@ -438,7 +418,7 @@ async fn stats(
         open,
         cache_populated: cache_storage_bytes > 0,
         cache_storage_bytes,
-        adapter: BTreeMap::new(),
+        adapter,
         slatedb,
     }))
 }

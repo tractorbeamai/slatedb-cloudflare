@@ -1951,6 +1951,9 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "rustls-platform-verifier",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
@@ -2347,10 +2350,13 @@ dependencies = [
 name = "slatedb-cloudflare-container"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum",
  "bytes",
+ "chrono",
  "futures",
  "object_store",
+ "reqwest",
  "serde",
  "serde_json",
  "slatedb",

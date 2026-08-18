@@ -30,7 +30,9 @@ container, and a cold start commonly adds seconds before the database is ready.
 
 Cloudflare Containers are controlled through a Durable Object, so the
 Container example still has a small Worker and Durable Object routing layer.
-SlateDB itself runs only in the native container. See Cloudflare's
+SlateDB itself runs only in the native container. Its R2 traffic uses a virtual
+hostname intercepted by that Worker, keeping the native R2 binding and all R2
+credentials outside the container. See Cloudflare's
 [architecture](https://developers.cloudflare.com/containers/platform-details/architecture/),
 [instance types](https://developers.cloudflare.com/containers/platform-details/limits/),
 and [pricing](https://developers.cloudflare.com/containers/pricing/) for the

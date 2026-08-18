@@ -26,9 +26,12 @@
       "new_sqlite_classes": ["SlateDbContainer"]
     }
   ],
-  "vars": {
-    "R2_BUCKET": "slatedb-cloudflare-container"
-  },
+  "r2_buckets": [
+    {
+      "binding": "SLATEDB_BUCKET",
+      "bucket_name": "slatedb-cloudflare-container"
+    }
+  ],
   "observability": {
     "enabled": true,
     "logs": { "enabled": true, "head_sampling_rate": 1 },

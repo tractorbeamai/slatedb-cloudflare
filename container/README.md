@@ -9,9 +9,16 @@ Object starts and proxies to the corresponding container.
 
 ## Architecture
 
-R2 is SlateDB's durable object store through its S3-compatible API. Each logical
-database receives its own R2 prefix. The container's filesystem is ephemeral
-and contains only SlateDB's built-in decoupled object-store cache.
+R2 is SlateDB's durable object store through a native Worker binding. A
+Cloudflare Container cannot call that binding in-process, so the container
+sends object-store requests to the virtual `slatedb.r2` hostname. The
+supervising Worker intercepts them with `outboundByHost` and performs the R2
+binding calls. No R2 credentials enter the container. Each logical database
+receives its own R2 prefix. The container's filesystem is ephemeral and
+contains only SlateDB's built-in decoupled object-store cache.
+
+This uses Cloudflare's documented
+[Worker binding access from Containers](https://developers.cloudflare.com/containers/platform-details/workers-connections/).
 
 The configured `basic` instance provides 1 GiB of memory and 4 GB of ephemeral
 disk. SlateDB uses a 128 MiB Foyer decoded-block cache, a 512 MiB filesystem
@@ -27,40 +34,42 @@ platform's shutdown deadline.
 Unlike the Durable Object implementation, this path has:
 
 - no vendored SlateDB crates or local patches;
-- no custom R2 `ObjectStore` implementation;
 - no custom persistent cache implementation;
 - normal Tokio multithreading, clocks, multipart uploads, and filesystem APIs.
+
+The native service includes a narrow `object_store` transport for the binding
+bridge. It preserves R2 conditional writes, ranges, paginated listings,
+deletes, and multipart uploads; using a generic HTTP store or an R2 FUSE mount
+would not preserve SlateDB's manifest fencing contract.
+
+Container egress bodies reach the Worker as unknown-length streams, while R2
+binding writes require a known length. The bridge therefore buffers each
+ordinary PUT or multipart part before calling R2; reads stream back to the
+container. SlateDB switches to multipart at 10 MiB, keeping this proof's normal
+bridge buffers well below the Worker's 128 MiB memory limit.
 
 ## Setup
 
 Requirements are Bun, Rust, Docker or a compatible engine, a paid Cloudflare
-Workers plan, and an R2 API token with object read/write access. Create the
-bucket and configure secrets from this directory:
+Workers plan. Create the bucket and configure the API token from this directory:
 
 ```sh
 bun install
 bunx wrangler login
 bunx wrangler r2 bucket create slatedb-cloudflare-container
 bunx wrangler secret put PROBE_TOKEN
-bunx wrangler secret put R2_ACCOUNT_ID
-bunx wrangler secret put R2_ACCESS_KEY_ID
-bunx wrangler secret put R2_SECRET_ACCESS_KEY
 bun run deploy
 ```
 
-Create the R2 access key pair from Cloudflare's
-[R2 API token flow](https://developers.cloudflare.com/r2/api/tokens/). Secret
-commands prompt securely; do not place credentials in `wrangler.jsonc`.
-
-For local development, copy `.dev.vars.example` to `.dev.vars`, fill in the R2
-credentials, and run:
+For local development, copy `.dev.vars.example` to `.dev.vars`, set the API
+token, and run:
 
 ```sh
 bun run dev
 ```
 
-Container local development still needs Docker and real R2 credentials because
-the native service uses R2's S3 endpoint. Use a separate test bucket when
+Container local development still needs Docker. Wrangler supplies the configured
+R2 binding; use a separate bucket configuration for development data when
 possible.
 
 ## API and verification
