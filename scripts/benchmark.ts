@@ -29,9 +29,11 @@ type Result = {
   errors: number;
   seconds: number;
   operationsPerSecond: number;
+  p1Ms: number;
   p50Ms: number;
   p95Ms: number;
   p99Ms: number;
+  p999Ms: number;
   maxMs: number;
   errorSamples: string[];
 };
@@ -234,9 +236,11 @@ function summarize(phase: Phase, samples: Sample[], elapsedMs: number): Result {
     errors: errors.length,
     seconds: round(seconds),
     operationsPerSecond: round(samples.length / seconds),
+    p1Ms: round(percentile(successful, 0.01)),
     p50Ms: round(percentile(successful, 0.5)),
     p95Ms: round(percentile(successful, 0.95)),
     p99Ms: round(percentile(successful, 0.99)),
+    p999Ms: round(percentile(successful, 0.999)),
     maxMs: round(successful.at(-1) ?? 0),
     errorSamples: [...new Set(errors.flatMap((entry) => entry.error ?? []))].slice(
       0,

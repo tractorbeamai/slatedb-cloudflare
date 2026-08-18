@@ -121,7 +121,7 @@ The default run seeds 1,000 1 KiB values per logical database with eight
 closed-loop clients. It then reports cache-fill reads, warm-cache reads, durable
 writes, and a 50/50 read/write workload. Timed phases use a three-second warmup
 followed by 15 seconds of measured activity. Results include operations per
-second, errors, and p50/p95/p99/max request latency.
+second, errors, and p1/p50/p95/p99/p99.9/max request latency.
 
 Environment variables configure the workload:
 
