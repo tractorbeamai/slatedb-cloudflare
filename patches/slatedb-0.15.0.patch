@@ -115,7 +115,37 @@ diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/cached_object_store/object_
  use crate::cached_object_store::storage_fs::FsCacheStorage;
  use crate::cached_object_store::LocalCacheEntry;
  use crate::config::ObjectStoreCacheOptions;
-@@ -126,6 +129,7 @@
+@@ -119,6 +122,29 @@
+         }))
+     }
+ 
++    /// Builds a cached object store with caller-provided cache storage.
++    pub async fn from_storage(
++        object_store: Arc<dyn ObjectStore>,
++        cache_storage: Arc<dyn LocalCacheStorage>,
++        part_size_bytes: usize,
++    ) -> Result<Arc<Self>, crate::Error> {
++        let recorder = MetricsRecorderHelper::new(
++            Arc::new(NoopMetricsRecorder::new()),
++            MetricLevel::default(),
++        );
++        let stats = Arc::new(CachedObjectStoreStats::new(&recorder));
++        let cached = Self::new(
++            object_store,
++            cache_storage,
++            part_size_bytes,
++            CachePutConfig::default(),
++            stats,
++        )
++        .map_err(crate::Error::from)?;
++        cached.start_evictor().await;
++        Ok(cached)
++    }
++
+     pub(crate) async fn start_evictor(&self) {
+         self.cache_storage.start_evictor().await;
+     }
+@@ -126,6 +152,7 @@
      /// Build a `CachedObjectStore` from `ObjectStoreCacheOptions`, returning `None`
      /// if caching is not configured (i.e. `root_folder` is `None`). When `Some` is
      /// returned the evictor has already been started.
@@ -123,7 +153,7 @@ diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/cached_object_store/object_
      pub(crate) async fn from_config(
          object_store: Arc<dyn ObjectStore>,
          options: &ObjectStoreCacheOptions,
-@@ -159,6 +163,22 @@
+@@ -159,6 +186,22 @@
          )?;
          cached.start_evictor().await;
          Ok(Some(cached))

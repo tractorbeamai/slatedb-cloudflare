@@ -34,6 +34,15 @@ for number in $(seq 1 12); do
     | grep -q "\"value\":\"value:${number}\""
 done
 
+request -X POST "${base_url}/v1/db/${database}/admin/flush" | grep -q '"ok":true'
+request -X POST "${base_url}/v1/db/${database}/admin/reopen" | grep -q '"ok":true'
+request -X POST "${base_url}/v1/db/${database}/admin/cache/clear" | grep -q '"ok":true'
+request "${base_url}/v1/db/${database}/stats" | grep -q '"cache_populated":false'
+request "${base_url}/v1/db/${database}/get?key=alpha" | grep -q '"value":"two"'
+request "${base_url}/v1/db/${database}/stats" | grep -q '"cache_populated":true'
+request -X POST "${base_url}/v1/db/${database}/admin/reopen" | grep -q '"ok":true'
+request "${base_url}/v1/db/${database}/get?key=alpha" | grep -q '"value":"two"'
+request -X POST "${base_url}/v1/db/${database}/admin/cache/clear" | grep -q '"ok":true'
 request -X POST "${base_url}/v1/db/${database}/admin/reopen" | grep -q '"ok":true'
 request "${base_url}/v1/db/${database}/get?key=alpha" | grep -q '"value":"two"'
 

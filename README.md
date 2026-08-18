@@ -1,7 +1,8 @@
 # SlateDB on Cloudflare Durable Objects
 
 A working example of running SlateDB 0.15.0 inside a Cloudflare Durable Object,
-with R2 as its durable storage backend.
+with R2 as its durable storage backend and Durable Object storage as a local SST
+cache.
 
 The example validates CRUD, concurrent writes, prefix scans, and recovery from
 R2 after reopening the database. Production use requires workload-specific
@@ -23,9 +24,15 @@ The class uses a SQLite-backed Durable Object namespace. SlateDB persists
 acknowledged data in R2, so Durable Object eviction only discards the active
 in-memory database handle.
 
-Reads use SlateDB's in-memory structures and R2. The Worker build disables
-decoded block caching because Foyer requires a filesystem and Moka reaches
-unsupported `std::time` behavior under workerd.
+SlateDB's decoupled object-store cache stores immutable compacted SST parts in
+the Durable Object Storage API. Cloudflare implements its key-value interface
+with the SQLite-backed object's hidden `__cf_kv` table. Parts are 1 MiB, below
+the platform's 2 MB combined key-and-value limit. Manifest, WAL, listing, and
+coordination operations bypass the cache and continue to use R2 directly.
+
+The Worker build disables SlateDB's separate decoded block cache because Foyer
+requires a filesystem and Moka reaches unsupported `std::time` behavior under
+workerd.
 
 ## Compatibility patches
 
@@ -37,6 +44,7 @@ do not compile for `wasm32-unknown-unknown`. The small, reviewable diffs in
 - preserve native Tokio behavior on non-WASM targets;
 - disable filesystem-only cache and admin paths on WASM;
 - adapt runtime handles, task cancellation, clocks, and `Send`-bounded timers;
+- expose SlateDB's existing cache-storage boundary for caller-provided storage;
 - select Worker-compatible scheduling for `object_store`'s buffered multipart
   writer.
 
@@ -60,9 +68,13 @@ Health checks are public. All `/v1` routes require
 | `POST` | `/v1/db/:db/delete` | `{"key":"k"}` |
 | `GET` | `/v1/db/:db/scan?prefix=p&limit=100` | — |
 | `POST` | `/v1/db/:db/admin/reopen` | — |
+| `POST` | `/v1/db/:db/admin/flush` | — |
+| `POST` | `/v1/db/:db/admin/cache/clear` | — |
+| `GET` | `/v1/db/:db/stats` | — |
 
 The example API accepts UTF-8 keys and values. SlateDB itself stores bytes.
-The reopen endpoint exists only to exercise R2 recovery.
+The admin endpoints and cache-populated status exist only to exercise R2
+recovery and persistent cache behavior.
 
 ## Run locally
 
@@ -104,7 +116,9 @@ bun run build
 
 These commands verify formatting, the patched WASM build, native unit tests,
 Clippy, and a Wrangler deployment dry run. The unit tests cover conditional
-write translation, byte ranges, pagination, and multipart payload assembly.
+write translation, byte ranges, pagination, multipart payload assembly, and
+cache-key separation. The smoke test flushes an SST, populates the cache,
+reopens the database, clears the cache, and recovers the same data from R2.
 
 ## Deploy
 
@@ -131,7 +145,10 @@ Workers plan.
 ## Known limits
 
 - Background work shares a single JavaScript event loop.
-- Reads have no decoded block cache or persistent local cache.
+- Reads have no decoded block cache. Compacted SST reads use the persistent
+  Durable Object cache.
+- The proof has no automatic cache eviction. Cache entries remain until SlateDB
+  deletes the corresponding SST or the test endpoint clears the object storage.
 - The R2 adapter currently materializes each requested object range before
   returning it to SlateDB.
 - Multipart recovery above `object_store`'s 10 MiB writer threshold is not
@@ -141,7 +158,8 @@ Workers plan.
   feasibility testing.
 
 See Cloudflare's [R2 consistency documentation](https://developers.cloudflare.com/r2/reference/consistency/),
-[Durable Object guidance](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/),
+[SQLite-backed Durable Object Storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/),
+[Durable Object limits](https://developers.cloudflare.com/durable-objects/platform/limits/),
 and [Workers WebAssembly constraints](https://developers.cloudflare.com/workers/runtime-apis/webassembly/).
 
 ## License

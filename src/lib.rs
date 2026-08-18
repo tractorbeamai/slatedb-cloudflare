@@ -3,18 +3,23 @@ use std::sync::Arc;
 use futures::lock::Mutex;
 use serde::{Deserialize, Serialize};
 use slatedb::Db;
+use slatedb::cached_object_store::CachedObjectStore;
+use slatedb::config::{FlushOptions, FlushType};
 use slatedb::object_store::ObjectStore;
 use slatedb::object_store::prefix::PrefixStore;
 use worker::*;
 
+mod do_cache;
 mod r2_store;
 
+use do_cache::DoCacheStorage;
 use r2_store::R2Store;
 
 const DB_BINDING: &str = "SLATEDB_OBJECTS";
 const R2_BINDING: &str = "SLATEDB_BUCKET";
 const TOKEN_SECRET: &str = "PROBE_TOKEN";
 const DB_ROOT: &str = "slatedb";
+const CACHE_PART_SIZE: usize = 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 struct PutRequest {
@@ -48,6 +53,12 @@ struct ScanResponse {
 #[derive(Debug, Serialize)]
 struct OkResponse {
     ok: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct StatusResponse {
+    open: bool,
+    cache_populated: bool,
 }
 
 struct ActiveDb {
@@ -110,6 +121,7 @@ fn validate_database_name(name: &str) -> Result<()> {
 #[durable_object]
 pub struct SlateDbObject {
     env: Env,
+    cache: Arc<DoCacheStorage>,
     active: Mutex<Option<ActiveDb>>,
 }
 
@@ -119,7 +131,11 @@ impl SlateDbObject {
             R2Store::new(self.env.clone(), R2_BINDING),
             database,
         ));
-        let db = Db::builder(DB_ROOT, r2)
+        let cached: Arc<dyn ObjectStore> =
+            CachedObjectStore::from_storage(r2, self.cache.clone(), CACHE_PART_SIZE)
+                .await
+                .map_err(slatedb_error)?;
+        let db = Db::builder(DB_ROOT, cached)
             .with_db_cache_disabled()
             .build()
             .await
@@ -230,15 +246,38 @@ impl SlateDbObject {
                 self.reopen(database).await?;
                 Response::from_json(&OkResponse { ok: true })
             }
+            (Method::Post, ["admin", "flush"]) => {
+                self.database(database)
+                    .await?
+                    .flush_with_options(FlushOptions {
+                        flush_type: FlushType::MemTable,
+                    })
+                    .await
+                    .map_err(slatedb_error)?;
+                Response::from_json(&OkResponse { ok: true })
+            }
+            (Method::Post, ["admin", "cache", "clear"]) => {
+                self.cache.clear().await?;
+                Response::from_json(&OkResponse { ok: true })
+            }
+            (Method::Get, ["stats"]) => {
+                let open = self.active.lock().await.is_some();
+                let cache_populated = self.cache.is_populated().await?;
+                Response::from_json(&StatusResponse {
+                    open,
+                    cache_populated,
+                })
+            }
             _ => Response::error("route not found", 404),
         }
     }
 }
 
 impl DurableObject for SlateDbObject {
-    fn new(_state: State, env: Env) -> Self {
+    fn new(state: State, env: Env) -> Self {
         Self {
             env,
+            cache: Arc::new(DoCacheStorage::new(state.storage())),
             active: Mutex::new(None),
         }
     }

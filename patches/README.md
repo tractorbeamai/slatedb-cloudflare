@@ -11,7 +11,7 @@ generated `vendor/` directory is ignored by Git.
 | `slatedb-common` | 0.15.0 | `7db4911082c8af96beb4be3ec2e4f8cbf0b142c8` |
 | `slatedb-txn-obj` | 0.15.0 | `7db4911082c8af96beb4be3ec2e4f8cbf0b142c8` |
 
-The SlateDB patches only add Worker runtime compatibility and disable native
-filesystem-only paths on `wasm32`. The `object_store` patch selects
-`tokio_with_wasm` for its buffered multipart writer on WebAssembly. None of the
-patches change SlateDB's cache API.
+The SlateDB patches add Worker runtime compatibility, disable native
+filesystem-only paths on `wasm32`, and expose construction with a caller-provided
+`LocalCacheStorage`. The `object_store` patch selects `tokio_with_wasm` for its
+buffered multipart writer on WebAssembly.
