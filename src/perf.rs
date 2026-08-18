@@ -17,6 +17,13 @@ pub struct PerfCounters {
     pub cache_head_misses: AtomicU64,
     pub cache_head_writes: AtomicU64,
     pub cache_errors: AtomicU64,
+    pub do_kv_gets: AtomicU64,
+    pub do_kv_puts: AtomicU64,
+    pub do_kv_deletes: AtomicU64,
+    pub do_kv_delete_alls: AtomicU64,
+    pub do_kv_lists: AtomicU64,
+    pub do_kv_rows_read: AtomicU64,
+    pub do_kv_rows_written: AtomicU64,
     pub r2_gets: AtomicU64,
     pub r2_heads: AtomicU64,
     pub r2_puts: AtomicU64,
@@ -26,6 +33,7 @@ pub struct PerfCounters {
     pub r2_written_bytes: AtomicU64,
     pub r2_multipart_uploads: AtomicU64,
     pub r2_multipart_parts: AtomicU64,
+    pub r2_multipart_completes: AtomicU64,
     pub r2_errors: AtomicU64,
 }
 
@@ -45,6 +53,13 @@ pub struct PerfSnapshot {
     pub cache_head_misses: u64,
     pub cache_head_writes: u64,
     pub cache_errors: u64,
+    pub do_kv_gets: u64,
+    pub do_kv_puts: u64,
+    pub do_kv_deletes: u64,
+    pub do_kv_delete_alls: u64,
+    pub do_kv_lists: u64,
+    pub do_kv_rows_read: u64,
+    pub do_kv_rows_written: u64,
     pub r2_gets: u64,
     pub r2_heads: u64,
     pub r2_puts: u64,
@@ -54,6 +69,7 @@ pub struct PerfSnapshot {
     pub r2_written_bytes: u64,
     pub r2_multipart_uploads: u64,
     pub r2_multipart_parts: u64,
+    pub r2_multipart_completes: u64,
     pub r2_errors: u64,
 }
 
@@ -74,6 +90,13 @@ impl PerfCounters {
             cache_head_misses: load(&self.cache_head_misses),
             cache_head_writes: load(&self.cache_head_writes),
             cache_errors: load(&self.cache_errors),
+            do_kv_gets: load(&self.do_kv_gets),
+            do_kv_puts: load(&self.do_kv_puts),
+            do_kv_deletes: load(&self.do_kv_deletes),
+            do_kv_delete_alls: load(&self.do_kv_delete_alls),
+            do_kv_lists: load(&self.do_kv_lists),
+            do_kv_rows_read: load(&self.do_kv_rows_read),
+            do_kv_rows_written: load(&self.do_kv_rows_written),
             r2_gets: load(&self.r2_gets),
             r2_heads: load(&self.r2_heads),
             r2_puts: load(&self.r2_puts),
@@ -83,6 +106,7 @@ impl PerfCounters {
             r2_written_bytes: load(&self.r2_written_bytes),
             r2_multipart_uploads: load(&self.r2_multipart_uploads),
             r2_multipart_parts: load(&self.r2_multipart_parts),
+            r2_multipart_completes: load(&self.r2_multipart_completes),
             r2_errors: load(&self.r2_errors),
         }
     }
@@ -102,10 +126,14 @@ mod tests {
         increment(&counters.cache_part_hits, 2);
         increment(&counters.cache_loaded_bytes, 1_048_576);
         increment(&counters.cache_loaded_bytes, 1_048_576);
+        increment(&counters.do_kv_rows_written, 3);
+        increment(&counters.r2_multipart_completes, 1);
 
         let snapshot = counters.snapshot();
         assert_eq!(snapshot.cache_part_hits, 2);
         assert_eq!(snapshot.cache_loaded_bytes, 2_097_152);
+        assert_eq!(snapshot.do_kv_rows_written, 3);
+        assert_eq!(snapshot.r2_multipart_completes, 1);
         assert_eq!(snapshot.r2_gets, 0);
     }
 }

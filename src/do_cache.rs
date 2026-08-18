@@ -31,15 +31,23 @@ impl DoCacheStorage {
     }
 
     pub async fn clear(&self) -> worker::Result<()> {
+        increment(&self.perf.do_kv_delete_alls, 1);
         self.storage.delete_all().into_send().await
     }
 
     pub async fn is_populated(&self) -> worker::Result<bool> {
-        self.storage
+        increment(&self.perf.do_kv_lists, 1);
+        let entries = self
+            .storage
             .list_with_options(ListOptions::new().prefix(CACHE_PREFIX).limit(1))
             .into_send()
-            .await
-            .map(|entries| entries.size() != 0)
+            .await?;
+        increment(&self.perf.do_kv_rows_read, entries.size() as u64);
+        Ok(entries.size() != 0)
+    }
+
+    pub fn database_size(&self) -> usize {
+        self.storage.sql().database_size()
     }
 }
 
@@ -99,6 +107,7 @@ impl Debug for DoCacheEntry {
 impl LocalCacheEntry for DoCacheEntry {
     async fn save_part(&self, part_number: PartID, bytes: Bytes) -> Result<()> {
         let byte_count = bytes.len() as u64;
+        increment(&self.perf.do_kv_puts, 1);
         let result = self
             .storage
             .put(
@@ -109,6 +118,7 @@ impl LocalCacheEntry for DoCacheEntry {
             .await
             .map_err(cache_error);
         if result.is_ok() {
+            increment(&self.perf.do_kv_rows_written, 1);
             increment(&self.perf.cache_part_writes, 1);
             increment(&self.perf.cache_written_bytes, byte_count);
         } else {
@@ -123,6 +133,7 @@ impl LocalCacheEntry for DoCacheEntry {
         range_in_part: Range<usize>,
     ) -> Result<Option<Bytes>> {
         increment(&self.perf.cache_part_reads, 1);
+        increment(&self.perf.do_kv_gets, 1);
         increment(&self.perf.cache_requested_bytes, range_in_part.len() as u64);
         let loaded = self
             .storage
@@ -139,11 +150,13 @@ impl LocalCacheEntry for DoCacheEntry {
         };
         let bytes = Bytes::from(bytes.into_vec());
         increment(&self.perf.cache_part_hits, 1);
+        increment(&self.perf.do_kv_rows_read, 1);
         increment(&self.perf.cache_loaded_bytes, bytes.len() as u64);
         cached_range(bytes, range_in_part, &self.perf)
     }
 
     async fn save_head(&self, meta: (&ObjectMeta, &Attributes)) -> Result<()> {
+        increment(&self.perf.do_kv_puts, 1);
         let result = self
             .storage
             .put(&self.head_key(), LocalCacheHead::from(meta))
@@ -151,6 +164,7 @@ impl LocalCacheEntry for DoCacheEntry {
             .await
             .map_err(cache_error);
         if result.is_ok() {
+            increment(&self.perf.do_kv_rows_written, 1);
             increment(&self.perf.cache_head_writes, 1);
         } else {
             increment(&self.perf.cache_errors, 1);
@@ -160,6 +174,7 @@ impl LocalCacheEntry for DoCacheEntry {
 
     async fn read_head(&self) -> Result<Option<(ObjectMeta, Attributes)>> {
         increment(&self.perf.cache_head_reads, 1);
+        increment(&self.perf.do_kv_gets, 1);
         let result = self
             .storage
             .get::<LocalCacheHead>(&self.head_key())
@@ -167,7 +182,10 @@ impl LocalCacheEntry for DoCacheEntry {
             .await
             .map_err(cache_error);
         match &result {
-            Ok(Some(_)) => increment(&self.perf.cache_head_hits, 1),
+            Ok(Some(_)) => {
+                increment(&self.perf.cache_head_hits, 1);
+                increment(&self.perf.do_kv_rows_read, 1);
+            }
             Ok(None) => increment(&self.perf.cache_head_misses, 1),
             Err(_) => increment(&self.perf.cache_errors, 1),
         }
@@ -176,7 +194,10 @@ impl LocalCacheEntry for DoCacheEntry {
 
     async fn delete(&self) {
         let head = self.read_head().await.ok().flatten();
-        self.storage.delete(&self.head_key()).into_send().await.ok();
+        increment(&self.perf.do_kv_deletes, 1);
+        if let Ok(deleted) = self.storage.delete(&self.head_key()).into_send().await {
+            increment(&self.perf.do_kv_rows_written, u64::from(deleted));
+        }
 
         if let Some((meta, _)) = head {
             let part_count = meta.size.div_ceil(self.part_size as u64) as usize;
@@ -184,11 +205,15 @@ impl LocalCacheEntry for DoCacheEntry {
                 .map(|part_number| self.part_key(part_number))
                 .collect::<Vec<_>>();
             for chunk in keys.chunks(128) {
-                self.storage
+                increment(&self.perf.do_kv_deletes, chunk.len() as u64);
+                if let Ok(deleted) = self
+                    .storage
                     .delete_multiple(chunk.to_vec())
                     .into_send()
                     .await
-                    .ok();
+                {
+                    increment(&self.perf.do_kv_rows_written, deleted as u64);
+                }
             }
         }
     }

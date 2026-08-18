@@ -426,6 +426,7 @@ impl MultipartUpload for R2MultipartUpload {
             increment(&self.perf.r2_errors, 1);
             generic(error)
         })?;
+        increment(&self.perf.r2_multipart_completes, 1);
         Ok(PutResult {
             e_tag: Some(object.etag()),
             version: Some(object.version()),

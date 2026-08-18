@@ -100,6 +100,7 @@ struct OkResponse {
 struct StatusResponse {
     open: bool,
     cache_populated: bool,
+    cache_storage_bytes: usize,
     adapter: PerfSnapshot,
     slatedb: Vec<SlateMetric>,
 }
@@ -402,6 +403,7 @@ impl SlateDbObject {
                 Response::from_json(&StatusResponse {
                     open,
                     cache_populated,
+                    cache_storage_bytes: self.cache.database_size(),
                     adapter: self.perf.snapshot(),
                     slatedb,
                 })

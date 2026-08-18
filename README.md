@@ -214,12 +214,33 @@ engine boundary. The balanced benchmark fails if a cumulative adapter counter
 decreases between warmup and measurement, because that proves the Durable Object
 was recreated during the run.
 
-Production tracing is enabled at a 10% sample rate in `wrangler.jsonc`. Cloudflare's automatic trace
-spans provide request CPU and wall time plus Durable Object, R2, and storage
-binding operations. Use a unique `BENCH_DATABASE_PREFIX` to correlate a run in
-Workers Observability. The benchmark report and Cloudflare traces are the two
-halves of the performance loop: the report attributes engine and adapter work;
-the traces locate CPU and platform I/O cost.
+Each report also contains a phase-by-phase `cost` ledger. It counts outer
+Worker and Durable Object requests, R2 Class A and Class B operations, R2 bytes,
+Durable Object storage calls and rows, and the SQLite database size at each
+checkpoint. `observedListPriceUsd` applies the Cloudflare paid-plan list prices
+current on August 18, 2026, before monthly included usage and billing-unit
+rounding. This makes R2 request amplification and persistent-cache row traffic
+direct optimization targets without adding telemetry calls to the measured
+operation path.
+
+The ledger cannot determine Worker CPU milliseconds, Durable Object active
+duration, time-integrated R2 or SQLite GB-months, or account-wide included usage.
+It also cannot recover the number of rows removed by the Storage API's
+`deleteAll()` call. Those dimensions remain explicit in `cost.notMeasured`; use
+the Cloudflare bill as the authoritative total. Cloudflare documents the rates
+and billing rules for [Workers](https://developers.cloudflare.com/workers/platform/pricing/),
+[Durable Objects](https://developers.cloudflare.com/durable-objects/platform/pricing/),
+and [R2](https://developers.cloudflare.com/r2/pricing/). Cloudflare also warns
+that its [GraphQL Analytics API](https://developers.cloudflare.com/analytics/graphql-api/)
+is not a billing-usage source.
+
+Production tracing is enabled at a 10% sample rate in `wrangler.jsonc`.
+Cloudflare's automatic trace spans provide request CPU and wall time plus Durable
+Object, R2, and storage binding operations. Use a unique
+`BENCH_DATABASE_PREFIX` to correlate a run in Workers Observability. The
+benchmark report and Cloudflare traces are the two halves of the performance
+loop: the report attributes engine and adapter work; the traces locate CPU and
+platform I/O cost.
 
 For a short attribution matrix, keep the official 400-byte value and Zipfian
 selection, then vary only one dimension per run:
@@ -304,6 +325,19 @@ These are 30- or 60-second attribution runs, not replacements for SlateDB's
 full release benchmark. The working set is 10,000 records rather than roughly
 120 GiB, and the stable mixed run uses four operations per control request to
 bound request memory.
+
+### Cost attribution result
+
+The committed [cost-observability run](benchmarks/live-cost-observability-2026-08-18.json)
+uses the same balanced operation mix with a shorter five-second warmup,
+15-second measurement, and 1,000-record working set. Its measured phase completed
+182,272 operations with no errors and recorded a `$0.000661185` directly observed
+list-price subtotal, or `$0.00363` per million SlateDB operations. R2 operations
+accounted for 60.8% of that subtotal, Durable Object storage rows for 33.1%, and
+outer Worker plus Durable Object requests for 6.1%. The next cost optimization
+targets are therefore R2 Class A amplification and cache-row writes. Compute
+duration and retained storage remain unpriced until reconciled against
+Cloudflare's account billing data.
 
 ## Checks
 

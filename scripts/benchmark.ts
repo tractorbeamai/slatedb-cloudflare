@@ -30,6 +30,7 @@ type Config = {
 type DatabaseStatus = {
   open: boolean;
   cache_populated: boolean;
+  cache_storage_bytes: number;
   adapter: Record<string, number>;
   slatedb: Array<{
     name: string;
@@ -89,7 +90,10 @@ const headers = {
 
 const results: Result[] = [];
 const telemetry: Record<string, DatabaseStatus[]> = {};
+const clientRequests: Record<string, number> = {};
+let clientRequestCount = 0;
 
+await captureTelemetry("runStart");
 if (config.profile === "slatedb-balanced") {
   await runSlatedbBalanced();
 } else {
@@ -114,6 +118,7 @@ async function runDefault(): Promise<void> {
     ),
   );
   if (results.at(-1)?.errors) await finish(results);
+  await captureTelemetry("afterCacheFill");
 
   for (const database of databases) {
     const status = await requestJson<{ cache_populated: boolean }>(
@@ -125,6 +130,7 @@ async function runDefault(): Promise<void> {
   }
 
   results.push(await runTimed("warm-read", getRandomSeed));
+  await captureTelemetry("afterWarmRead");
 
   let writeSequence = 0;
   results.push(
@@ -134,6 +140,7 @@ async function runDefault(): Promise<void> {
       await put(database, `write-${client}-${sequence}`);
     }),
   );
+  await captureTelemetry("afterWrite");
 
   results.push(
     await runTimed("mixed", async (client, random) => {
@@ -146,6 +153,7 @@ async function runDefault(): Promise<void> {
       await put(database, `mixed-${client}-${sequence}`);
     }),
   );
+  await captureTelemetry("afterMixed");
 }
 
 async function runSlatedbBalanced(): Promise<void> {
@@ -209,6 +217,7 @@ async function captureTelemetry(checkpoint: string): Promise<void> {
     ...status,
     slatedb: status.slatedb.filter(reportMetric),
   }));
+  clientRequests[checkpoint] = clientRequestCount;
 }
 
 function reportMetric(metric: DatabaseStatus["slatedb"][number]): boolean {
@@ -314,6 +323,7 @@ async function admin(database: string, action: string): Promise<void> {
 }
 
 async function request(path: string, init: RequestInit = {}): Promise<Response> {
+  clientRequestCount++;
   const response = await fetch(`${config.baseUrl}${path}`, {
     ...init,
     headers: { ...headers, ...init.headers },
@@ -641,6 +651,145 @@ function round(value: number): number {
   return Number(value.toFixed(2));
 }
 
+function costPhases(): Array<[string, string, string]> {
+  const phases: Record<Profile, Array<[string, string, string]>> = {
+    default: [
+      ["seedAndPrepare", "runStart", "beforeWarmup"],
+      ["cacheFill", "beforeWarmup", "afterCacheFill"],
+      ["warmRead", "afterCacheFill", "afterWarmRead"],
+      ["write", "afterWarmRead", "afterWrite"],
+      ["mixed", "afterWrite", "afterMixed"],
+    ],
+    "slatedb-balanced": [
+      ["seedAndPrepare", "runStart", "beforeWarmup"],
+      ["warmup", "beforeWarmup", "afterWarmup"],
+      ["measurement", "afterWarmup", "afterMeasurement"],
+      ["durabilityDrain", "afterMeasurement", "afterDurabilityDrain"],
+    ],
+  };
+  return phases[config.profile];
+}
+
+function costReport() {
+  const phases = Object.fromEntries(
+    costPhases().flatMap(([name, before, after]) =>
+      telemetry[before] && telemetry[after]
+        ? [[name, phaseCost(before, after)]]
+        : [],
+    ),
+  );
+  return {
+    currency: "USD",
+    pricingAsOf: "2026-08-18",
+    basis:
+      "Cloudflare paid-plan list prices before account-wide included usage and billing-unit rounding",
+    sources: {
+      workers: "https://developers.cloudflare.com/workers/platform/pricing/",
+      durableObjects:
+        "https://developers.cloudflare.com/durable-objects/platform/pricing/",
+      r2: "https://developers.cloudflare.com/r2/pricing/",
+    },
+    phases,
+    notMeasured: [
+      "Worker CPU milliseconds",
+      "Durable Object active duration in GB-s",
+      "time-integrated R2 and Durable Object GB-months",
+      "rows removed by Durable Object storage deleteAll()",
+      "account-wide included usage and billing-unit rounding",
+    ],
+    caveat:
+      "Operation and row counters are application-observed. Cloudflare account billing is authoritative.",
+  };
+}
+
+function phaseCost(before: string, after: string) {
+  const adapter = adapterDelta(telemetry[before], telemetry[after]);
+  const requests = clientRequests[after] - clientRequests[before];
+  const r2ClassA =
+    counter(adapter, "r2Puts") +
+    counter(adapter, "r2Lists") +
+    counter(adapter, "r2MultipartUploads") +
+    counter(adapter, "r2MultipartParts") +
+    counter(adapter, "r2MultipartCompletes");
+  const r2ClassB = counter(adapter, "r2Gets") + counter(adapter, "r2Heads");
+  const rowsRead = counter(adapter, "doKvRowsRead");
+  const rowsWritten = counter(adapter, "doKvRowsWritten");
+  const workerRequestUsd = requests * (0.3 / 1_000_000);
+  const durableObjectRequestUsd = requests * (0.15 / 1_000_000);
+  const r2OperationUsd =
+    r2ClassA * (4.5 / 1_000_000) + r2ClassB * (0.36 / 1_000_000);
+  const durableObjectStorageOperationUsd =
+    rowsRead * (0.001 / 1_000_000) + rowsWritten * (1 / 1_000_000);
+  return {
+    worker: {
+      requests,
+      requestListPriceUsd: usd(workerRequestUsd),
+    },
+    durableObject: {
+      requests,
+      requestListPriceUsd: usd(durableObjectRequestUsd),
+      storage: {
+        kvGets: counter(adapter, "doKvGets"),
+        kvPuts: counter(adapter, "doKvPuts"),
+        kvDeletes: counter(adapter, "doKvDeletes"),
+        kvDeleteAlls: counter(adapter, "doKvDeleteAlls"),
+        kvLists: counter(adapter, "doKvLists"),
+        rowsRead,
+        rowsWritten,
+        operationListPriceUsd: usd(durableObjectStorageOperationUsd),
+        databaseBytesBefore: totalStorageBytes(telemetry[before]),
+        databaseBytesAfter: totalStorageBytes(telemetry[after]),
+      },
+    },
+    r2: {
+      classAOperations: r2ClassA,
+      classBOperations: r2ClassB,
+      freeDeleteOperations: counter(adapter, "r2Deletes"),
+      readBytes: counter(adapter, "r2ReadBytes"),
+      writtenBytes: counter(adapter, "r2WrittenBytes"),
+      operationListPriceUsd: usd(r2OperationUsd),
+    },
+    observedListPriceUsd: usd(
+      workerRequestUsd +
+        durableObjectRequestUsd +
+        r2OperationUsd +
+        durableObjectStorageOperationUsd,
+    ),
+  };
+}
+
+function adapterDelta(
+  before: DatabaseStatus[],
+  after: DatabaseStatus[],
+): Record<string, number> {
+  const delta: Record<string, number> = {};
+  for (let index = 0; index < after.length; index++) {
+    for (const [name, value] of Object.entries(after[index].adapter)) {
+      const previous = before[index]?.adapter[name] ?? 0;
+      if (value < previous) {
+        throw new Error(`${name} fell from ${previous} to ${value}`);
+      }
+      delta[name] = (delta[name] ?? 0) + value - previous;
+    }
+  }
+  return delta;
+}
+
+function counter(counters: Record<string, number>, name: string): number {
+  return counters[name] ?? 0;
+}
+
+function totalStorageBytes(statuses: DatabaseStatus[]): number {
+  return statuses.reduce(
+    (total, status) => total + status.cache_storage_bytes,
+    0,
+  );
+}
+
+function usd(value: number): number {
+  return Number(value.toFixed(9));
+}
+
 async function finish(phaseResults: Result[]): Promise<never> {
   const report = {
     generatedAt: new Date().toISOString(),
@@ -659,6 +808,8 @@ async function finish(phaseResults: Result[]): Promise<never> {
           },
     results: phaseResults,
     telemetry,
+    clientRequests,
+    cost: costReport(),
   };
   const json = JSON.stringify(report, null, 2);
   if (config.outputFile) {
@@ -675,6 +826,17 @@ async function finish(phaseResults: Result[]): Promise<never> {
         console.error(`${result.phase} errors:`, result.errorSamples);
       }
     }
+    console.table(
+      Object.entries(report.cost.phases).map(([phase, cost]) => ({
+        phase,
+        requests: cost.worker.requests,
+        r2ClassA: cost.r2.classAOperations,
+        r2ClassB: cost.r2.classBOperations,
+        doRowsRead: cost.durableObject.storage.rowsRead,
+        doRowsWritten: cost.durableObject.storage.rowsWritten,
+        observedListPriceUsd: cost.observedListPriceUsd,
+      })),
+    );
   }
   process.exit(phaseResults.some((result) => result.errors > 0) ? 1 : 0);
 }
