@@ -1,0 +1,70 @@
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml	2006-07-23 20:21:28
++++ b/Cargo.toml	2026-08-17 18:34:15
+@@ -248,17 +248,6 @@
+ [dependencies.thiserror]
+ version = "2.0.2"
+ 
+-[dependencies.tokio]
+-version = "1.29.0"
+-features = [
+-    "sync",
+-    "macros",
+-    "rt",
+-    "time",
+-    "io-util",
+-]
+-optional = true
+-
+ [dependencies.tracing]
+ version = "0.1"
+ optional = true
+@@ -321,6 +310,33 @@
+ 
+ [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies.web-time]
+ version = "1.1.0"
++
++[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies.tokio]
++package = "tokio_with_wasm"
++version = "0.10.1"
++features = [
++    "sync",
++    "macros",
++    "rt",
++    "time",
++    "io-util",
++]
++optional = true
++
++[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies.send_wrapper]
++version = "0.6.0"
++features = ["futures"]
++
++[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies.tokio]
++version = "1.29.0"
++features = [
++    "sync",
++    "macros",
++    "rt",
++    "time",
++    "io-util",
++]
++optional = true
+ 
+ [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies.wasm-bindgen-test]
+ version = "0.3.50"
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/throttle.rs b/src/throttle.rs
+--- a/src/throttle.rs	2006-07-23 20:21:28
++++ b/src/throttle.rs	2026-08-17 18:34:20
+@@ -103,7 +103,10 @@
+ /// Sleep only if non-zero duration
+ async fn sleep(duration: Duration) {
+     if !duration.is_zero() {
+-        tokio::time::sleep(duration).await
++        #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
++        tokio::time::sleep(duration).await;
++        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
++        send_wrapper::SendWrapper::new(tokio::time::sleep(duration)).await;
+     }
+ }
+ 

@@ -1,0 +1,50 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "slatedb-cloudflare-feasibility",
+  "main": "build/worker/shim.mjs",
+  "compatibility_date": "2026-08-17",
+  "build": {
+    "command": "bash scripts/prepare-vendor.sh && worker-build --release",
+    "watch_dir": "src"
+  },
+  "rules": [
+    {
+      "globs": ["**/*.wasm"],
+      "type": "CompiledWasm",
+      "fallthrough": false
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SLATEDB_OBJECTS",
+        "class_name": "SlateDbObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["SlateDbObject"]
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "SLATEDB_BUCKET",
+      "bucket_name": "slatedb-cloudflare-feasibility"
+    }
+  ],
+  "limits": {
+    "cpu_ms": 30000
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": false
+    }
+  }
+}

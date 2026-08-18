@@ -1,0 +1,669 @@
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml	1969-12-31 18:00:01
++++ b/Cargo.toml	2026-08-17 18:35:20
+@@ -201,6 +201,8 @@
+ 
+ [dependencies.object_store]
+ version = "0.14.0"
++default-features = false
++features = ["tokio"]
+ 
+ [dependencies.ouroboros]
+ version = "0.18"
+@@ -244,17 +246,6 @@
+ [dependencies.thiserror]
+ version = "1.0.63"
+ 
+-[dependencies.tokio]
+-version = "1.47.1"
+-features = [
+-    "fs",
+-    "macros",
+-    "sync",
+-    "rt",
+-    "rt-multi-thread",
+-    "signal",
+-]
+-
+ [dependencies.tokio-util]
+ version = "0.7.16"
+ features = [
+@@ -362,6 +353,15 @@
+     "criterion",
+     "protobuf-codec",
+ ]
++
++[target.'cfg(target_arch = "wasm32")'.dependencies.tokio]
++package = "tokio_with_wasm"
++version = "0.10.1"
++features = ["io-util", "macros", "sync", "rt", "time"]
++
++[target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
++version = "1.47.1"
++features = ["fs", "io-util", "macros", "sync", "rt", "rt-multi-thread", "signal", "time"]
+ 
+ [lints.rust]
+ unreachable_pub = "warn"
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/admin.rs b/src/admin.rs
+--- a/src/admin.rs	2006-07-23 20:21:28
++++ b/src/admin.rs	2026-08-17 18:35:20
+@@ -753,15 +753,26 @@
+ /// |--------------|-----|----------|
+ /// | LOCAL_PATH | The path to the local directory where all data will be stored | Yes |
+ pub fn load_local() -> Result<Arc<dyn ObjectStore>, crate::Error> {
+-    let local_path = get_env_variable("LOCAL_PATH")?;
+-    let lfs =
+-        object_store::local::LocalFileSystem::new_with_prefix(local_path).map_err(|error| {
+-            SlateDBError::ObjectStoreError(Arc::new(object_store::Error::Generic {
+-                store: "local",
+-                source: Box::new(error),
+-            }))
+-        })?;
+-    Ok(Arc::new(lfs) as Arc<dyn ObjectStore>)
++    #[cfg(target_arch = "wasm32")]
++    {
++        return Err(SlateDBError::InvalidConfiguration(
++            "local object storage is unavailable on wasm32".to_owned(),
++        )
++        .into());
++    }
++
++    #[cfg(not(target_arch = "wasm32"))]
++    {
++        let local_path = get_env_variable("LOCAL_PATH")?;
++        let lfs =
++            object_store::local::LocalFileSystem::new_with_prefix(local_path).map_err(|error| {
++                SlateDBError::ObjectStoreError(Arc::new(object_store::Error::Generic {
++                    store: "local",
++                    source: Box::new(error),
++                }))
++            })?;
++        Ok(Arc::new(lfs) as Arc<dyn ObjectStore>)
++    }
+ }
+ 
+ /// Loads an in-memory object store instance.
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/cached_object_store/mod.rs b/src/cached_object_store/mod.rs
+--- a/src/cached_object_store/mod.rs	2006-07-23 20:21:28
++++ b/src/cached_object_store/mod.rs	2026-08-17 18:35:20
+@@ -1,6 +1,7 @@
+ pub use object_store::{CachedObjectStore, CachedObjectStoreBuilder};
+ #[allow(unused_imports)]
+ pub use storage::{LocalCacheEntry, LocalCacheHead, LocalCacheStorage, PartID};
++#[cfg(not(target_arch = "wasm32"))]
+ pub use storage_fs::FsCacheStorage;
+ 
+ pub mod stats;
+@@ -8,4 +9,5 @@
+ mod object_store;
+ pub(crate) mod policy;
+ mod storage;
++#[cfg(not(target_arch = "wasm32"))]
+ mod storage_fs;
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/cached_object_store/object_store.rs b/src/cached_object_store/object_store.rs
+--- a/src/cached_object_store/object_store.rs	2006-07-23 20:21:28
++++ b/src/cached_object_store/object_store.rs	2026-08-17 18:35:20
+@@ -1,8 +1,11 @@
++#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
++
+ use crate::cached_object_store::policy::{
+     CachePutConfig, DefaultGetPolicy, DefaultPutPolicy, GetAction, GetPolicy, HeadAction,
+     PutAction, PutPolicy,
+ };
+ use crate::cached_object_store::stats::CachedObjectStoreStats;
++#[cfg(not(target_arch = "wasm32"))]
+ use crate::cached_object_store::storage_fs::FsCacheStorage;
+ use crate::cached_object_store::LocalCacheEntry;
+ use crate::config::ObjectStoreCacheOptions;
+@@ -126,6 +129,7 @@
+     /// Build a `CachedObjectStore` from `ObjectStoreCacheOptions`, returning `None`
+     /// if caching is not configured (i.e. `root_folder` is `None`). When `Some` is
+     /// returned the evictor has already been started.
++    #[cfg(not(target_arch = "wasm32"))]
+     pub(crate) async fn from_config(
+         object_store: Arc<dyn ObjectStore>,
+         options: &ObjectStoreCacheOptions,
+@@ -159,6 +163,22 @@
+         )?;
+         cached.start_evictor().await;
+         Ok(Some(cached))
++    }
++
++    #[cfg(target_arch = "wasm32")]
++    pub(crate) async fn from_config(
++        _object_store: Arc<dyn ObjectStore>,
++        options: &ObjectStoreCacheOptions,
++        _recorder: &MetricsRecorderHelper,
++        _clock: Arc<dyn SystemClock>,
++        _rand: Arc<DbRand>,
++    ) -> Result<Option<Arc<Self>>, SlateDBError> {
++        if options.root_folder.is_some() {
++            return Err(SlateDBError::InvalidConfiguration(
++                "filesystem object-store cache is unavailable on wasm32".to_owned(),
++            ));
++        }
++        Ok(None)
+     }
+ 
+     /// Returns a builder for a `CachedObjectStore` that caches parts of the
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/cached_object_store/policy.rs b/src/cached_object_store/policy.rs
+--- a/src/cached_object_store/policy.rs	2006-07-23 20:21:28
++++ b/src/cached_object_store/policy.rs	2026-08-17 18:35:20
+@@ -1,5 +1,7 @@
+ //! Per-call cache routing policy for the bundled object store cache.
+ 
++#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
++
+ use crate::db_state::SstType;
+ use crate::object_store_tag::{ObjectStoreCallTag, TableStoreKind};
+ 
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/cached_object_store/stats.rs b/src/cached_object_store/stats.rs
+--- a/src/cached_object_store/stats.rs	2006-07-23 20:21:28
++++ b/src/cached_object_store/stats.rs	2026-08-17 18:35:20
+@@ -1,3 +1,5 @@
++#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
++
+ use slatedb_common::metrics::{CounterFn, GaugeFn, MetricsRecorderHelper};
+ use std::fmt::{Debug, Formatter};
+ use std::sync::Arc;
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/clock.rs b/src/clock.rs
+--- a/src/clock.rs	2006-07-23 20:21:28
++++ b/src/clock.rs	2026-08-17 18:35:20
+@@ -63,7 +63,9 @@
+                     Sleeping {}ms to potentially resolve skew before returning InvalidClockTick.",
+                     tick, last_tick, sync_millis
+                 );
+-                tokio::time::sleep(Duration::from_millis(sync_millis)).await;
++                self.delegate
++                    .sleep(Duration::from_millis(sync_millis))
++                    .await;
+                 self.enforce_monotonic(self.delegate.now().timestamp_millis())
+             }
+             result => result,
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/compaction_worker.rs b/src/compaction_worker.rs
+--- a/src/compaction_worker.rs	2006-07-23 20:21:28
++++ b/src/compaction_worker.rs	2026-08-17 18:35:20
+@@ -55,11 +55,11 @@
+ use std::collections::BTreeMap;
+ use std::sync::Arc;
+ 
++use crate::runtime::Handle;
+ use async_trait::async_trait;
+ use fail_parallel::{fail_point, FailPointRegistry};
+ use futures::stream::BoxStream;
+ use log::{debug, error, info, warn};
+-use tokio::runtime::Handle;
+ use ulid::Ulid;
+ 
+ use crate::compactions_store::{CompactionsStore, StoredCompactions};
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/compactor.rs b/src/compactor.rs
+--- a/src/compactor.rs	2006-07-23 20:21:28
++++ b/src/compactor.rs	2026-08-17 18:35:20
+@@ -59,13 +59,13 @@
+ use std::sync::Arc;
+ use std::time::Duration;
+ 
++use crate::runtime::Handle;
+ use async_trait::async_trait;
+ use bytes::Bytes;
+ use fail_parallel::FailPointRegistry;
+ use futures::stream::BoxStream;
+ use log::{debug, error, info, warn};
+ use serde::{Deserialize, Serialize};
+-use tokio::runtime::Handle;
+ use tracing::instrument;
+ use ulid::Ulid;
+ 
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/compactor_executor.rs b/src/compactor_executor.rs
+--- a/src/compactor_executor.rs	2006-07-23 20:21:28
++++ b/src/compactor_executor.rs	2026-08-17 18:35:20
+@@ -4,11 +4,11 @@
+ use std::sync::atomic::{self, AtomicBool};
+ use std::sync::Arc;
+ 
++use crate::runtime::AbortOnDropHandle;
+ use bytes::Bytes;
+ use futures::future::{join, join_all};
+ use parking_lot::Mutex;
+ use tokio::task::JoinHandle;
+-use tokio_util::task::AbortOnDropHandle;
+ 
+ use crate::bytes_range::BytesRange;
+ #[cfg(feature = "compaction_filters")]
+@@ -215,7 +215,7 @@
+ 
+ /// Options for creating a [`TokioCompactionExecutor`].
+ pub(crate) struct TokioCompactionExecutorOptions {
+-    pub handle: tokio::runtime::Handle,
++    pub handle: crate::runtime::Handle,
+     pub options: Arc<CompactionWorkerOptions>,
+     pub worker_tx: async_channel::Sender<WorkerMessage>,
+     pub table_store: Arc<TableStore>,
+@@ -300,7 +300,7 @@
+ 
+ pub(crate) struct TokioCompactionExecutorInner {
+     options: Arc<CompactionWorkerOptions>,
+-    handle: tokio::runtime::Handle,
++    handle: crate::runtime::Handle,
+     worker_tx: async_channel::Sender<WorkerMessage>,
+     table_store: Arc<TableStore>,
+     tasks: Arc<Mutex<BTreeMap<Ulid, TokioCompactionTask>>>,
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/db/builder.rs b/src/db/builder.rs
+--- a/src/db/builder.rs	2006-07-23 20:21:28
++++ b/src/db/builder.rs	2026-08-17 18:35:20
+@@ -105,6 +105,7 @@
+ use std::ops::{Bound, RangeBounds};
+ use std::sync::Arc;
+ 
++use crate::runtime::Handle;
+ use bytes::Bytes;
+ use fail_parallel::FailPointRegistry;
+ use log::info;
+@@ -112,7 +113,6 @@
+ use object_store::path::Path;
+ use object_store::ObjectStore;
+ use rand::RngCore;
+-use tokio::runtime::Handle;
+ 
+ use crate::admin::Admin;
+ use crate::batch_write::WriteBatchEventHandler;
+@@ -300,6 +300,7 @@
+     }
+ 
+     /// Sets the garbage collection runtime to use for the database.
++    #[cfg(not(target_arch = "wasm32"))]
+     pub fn with_gc_runtime(mut self, gc_runtime: Handle) -> Self {
+         self.gc_runtime = Some(gc_runtime);
+         self
+@@ -1172,6 +1173,7 @@
+ 
+     /// Sets the tokio handle to use for background tasks.
+     #[allow(unused)]
++    #[cfg(not(target_arch = "wasm32"))]
+     pub fn with_runtime(mut self, compaction_runtime: Handle) -> Self {
+         self.compaction_runtime = compaction_runtime;
+         self
+@@ -1432,6 +1434,7 @@
+         self
+     }
+ 
++    #[cfg(not(target_arch = "wasm32"))]
+     pub fn with_runtime(mut self, runtime: Handle) -> Self {
+         self.worker_runtime = Some(runtime);
+         self
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/db_reader.rs b/src/db_reader.rs
+--- a/src/db_reader.rs	2006-07-23 20:21:28
++++ b/src/db_reader.rs	2026-08-17 18:35:20
+@@ -19,6 +19,7 @@
+ use crate::paths::PathResolver;
+ use crate::prefix_extractor::PrefixExtractor;
+ use crate::reader::{DbStateReader, Reader, ScanContext};
++use crate::runtime::Handle;
+ use crate::sst_iter::SstIteratorOptions;
+ use crate::tablestore::TableStore;
+ use crate::types::KeyValue;
+@@ -39,7 +40,6 @@
+ use std::ops::Sub;
+ use std::sync::Arc;
+ use std::sync::LazyLock;
+-use tokio::runtime::Handle;
+ use uuid::Uuid;
+ 
+ pub(crate) const DB_READER_TASK_NAME: &str = "manifest_poller";
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/dispatcher.rs b/src/dispatcher.rs
+--- a/src/dispatcher.rs	2006-07-23 20:21:28
++++ b/src/dispatcher.rs	2026-08-17 18:35:20
+@@ -129,12 +129,17 @@
+ };
+ use log::error;
+ use parking_lot::Mutex;
+-use tokio::{runtime::Handle, task::JoinHandle};
+-use tokio_util::{sync::CancellationToken, task::JoinMap};
++use tokio::task::JoinHandle;
++#[cfg(target_arch = "wasm32")]
++use tokio::task::JoinMap;
++use tokio_util::sync::CancellationToken;
++#[cfg(not(target_arch = "wasm32"))]
++use tokio_util::task::JoinMap;
+ 
+ use crate::{
+     db_status::ClosedResultWriter,
+     error::SlateDBError,
++    runtime::Handle,
+     utils::{panic_string, split_join_result, split_unwind_result, WatchableOnceCell},
+ };
+ use slatedb_common::{
+@@ -535,6 +540,7 @@
+     /// A cancellation token used to cancel the handler's dispatcher.
+     token: CancellationToken,
+     /// A runtime handle used to spawn the future.
++    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+     handle: Handle,
+ }
+ 
+@@ -799,10 +805,16 @@
+                 .entry(task_definition.name.clone())
+                 .or_insert_with(|| TaskGroup::new(0))
+                 .remaining += 1;
++            #[cfg(not(target_arch = "wasm32"))]
+             tasks.spawn_on(
+                 (task_definition.name.clone(), task_definition.group_index),
+                 task_definition.future,
+                 &task_definition.handle,
++            );
++            #[cfg(target_arch = "wasm32")]
++            tasks.spawn(
++                (task_definition.name.clone(), task_definition.group_index),
++                task_definition.future,
+             );
+         }
+         let monitor = TaskMonitor {
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/garbage_collector.rs b/src/garbage_collector.rs
+--- a/src/garbage_collector.rs	2006-07-23 20:21:28
++++ b/src/garbage_collector.rs	2026-08-17 18:35:20
+@@ -22,6 +22,7 @@
+ use crate::garbage_collector::stats::GcStats;
+ use crate::manifest::store::{ManifestStore, StoredManifest};
+ use crate::manifest::Manifest;
++use crate::runtime::Handle;
+ use crate::tablestore::TableStore;
+ use crate::utils::WatchableOnceCell;
+ use async_trait::async_trait;
+@@ -38,7 +39,6 @@
+ use slatedb_txn_obj::{DirtyObject, SimpleTransactionalObject, TransactionalObject};
+ use std::sync::Arc;
+ use std::time::Duration;
+-use tokio::runtime::Handle;
+ use tracing::instrument;
+ use wal_gc::{WalGcMode, WalGcTask};
+ 
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/instrumented_object_store.rs b/src/instrumented_object_store.rs
+--- a/src/instrumented_object_store.rs	2006-07-23 20:21:28
++++ b/src/instrumented_object_store.rs	2026-08-17 18:35:20
+@@ -28,7 +28,10 @@
+ 
+ use std::ops::Range;
+ use std::sync::Arc;
++#[cfg(not(target_arch = "wasm32"))]
+ use std::time::Instant;
++#[cfg(target_arch = "wasm32")]
++use tokio::time::Instant;
+ 
+ use async_trait::async_trait;
+ use bytes::Bytes;
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs	2006-07-23 20:21:28
++++ b/src/lib.rs	2026-08-17 18:35:20
+@@ -93,6 +93,7 @@
+ pub mod manifest;
+ pub mod object_store_tag;
+ pub mod prefix_extractor;
++mod runtime;
+ pub mod seq_tracker;
+ pub mod size_tiered_compaction;
+ pub mod wal;
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/memtable_flusher/manifest_writer.rs b/src/memtable_flusher/manifest_writer.rs
+--- a/src/memtable_flusher/manifest_writer.rs	2006-07-23 20:21:28
++++ b/src/memtable_flusher/manifest_writer.rs	2026-08-17 18:35:20
+@@ -24,6 +24,7 @@
+ use crate::error::SlateDBError;
+ use crate::manifest::store::FenceableManifest;
+ use crate::oracle::Oracle;
++use crate::runtime::Handle;
+ use crate::utils::IdGenerator;
+ use crate::utils::SafeSender;
+ use crate::VersionedManifest;
+@@ -36,7 +37,6 @@
+ use std::collections::{BTreeMap, HashSet};
+ use std::sync::Arc;
+ use std::time::Duration;
+-use tokio::runtime::Handle;
+ use tokio::sync::oneshot;
+ use tokio::sync::watch;
+ 
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/memtable_flusher/mod.rs b/src/memtable_flusher/mod.rs
+--- a/src/memtable_flusher/mod.rs	2006-07-23 20:21:28
++++ b/src/memtable_flusher/mod.rs	2026-08-17 18:35:20
+@@ -24,10 +24,10 @@
+ use crate::memtable_flusher::manifest_writer::ManifestWriter;
+ use crate::memtable_flusher::tracker::{FlushTracker, TrackerMessage};
+ use crate::memtable_flusher::uploader::Uploader;
++use crate::runtime::Handle;
+ use crate::utils::SafeSender;
+ use log::warn;
+ use std::sync::Arc;
+-use tokio::runtime::Handle;
+ use tokio::sync::oneshot;
+ 
+ const TRACKER_TASK_NAME: &str = "l0_flush_tracker";
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/memtable_flusher/uploader.rs b/src/memtable_flusher/uploader.rs
+--- a/src/memtable_flusher/uploader.rs	2006-07-23 20:21:28
++++ b/src/memtable_flusher/uploader.rs	2026-08-17 18:35:20
+@@ -19,6 +19,7 @@
+ use crate::error::SlateDBError;
+ use crate::flush::EncodedSegmentSst;
+ use crate::mem_table::ImmutableMemtable;
++use crate::runtime::Handle;
+ use crate::utils::SafeSender;
+ use async_trait::async_trait;
+ use bytes::Bytes;
+@@ -28,7 +29,6 @@
+ use std::collections::BTreeMap;
+ use std::sync::Arc;
+ use std::time::Duration;
+-use tokio::runtime::Handle;
+ use ulid::Ulid;
+ 
+ const UPLOADER_TASK_NAME: &str = "l0_sst_uploader";
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/runtime.rs b/src/runtime.rs
+--- a/src/runtime.rs	1969-12-31 18:00:00
++++ b/src/runtime.rs	2026-08-17 18:35:20
+@@ -0,0 +1,78 @@
++#[cfg(not(target_arch = "wasm32"))]
++pub(crate) use tokio::runtime::Handle;
++#[cfg(not(target_arch = "wasm32"))]
++pub(crate) use tokio_util::task::AbortOnDropHandle;
++
++#[cfg(target_arch = "wasm32")]
++#[derive(Clone, Debug, Default)]
++pub(crate) struct Handle;
++
++#[cfg(target_arch = "wasm32")]
++impl Handle {
++    pub(crate) fn current() -> Self {
++        Self
++    }
++
++    pub(crate) fn spawn<F>(&self, future: F) -> tokio::task::JoinHandle<F::Output>
++    where
++        F: std::future::Future + 'static,
++        F::Output: 'static,
++    {
++        tokio::spawn(future)
++    }
++}
++
++#[cfg(target_arch = "wasm32")]
++pub(crate) struct AbortOnDropHandle<T> {
++    handle: Option<tokio::task::JoinHandle<T>>,
++}
++
++#[cfg(target_arch = "wasm32")]
++impl<T> AbortOnDropHandle<T> {
++    pub(crate) fn new(handle: tokio::task::JoinHandle<T>) -> Self {
++        Self {
++            handle: Some(handle),
++        }
++    }
++
++    pub(crate) fn is_finished(&self) -> bool {
++        self.handle
++            .as_ref()
++            .is_none_or(tokio::task::JoinHandle::is_finished)
++    }
++
++    pub(crate) fn abort(&self) {
++        if let Some(handle) = &self.handle {
++            handle.abort();
++        }
++    }
++}
++
++#[cfg(target_arch = "wasm32")]
++impl<T> Drop for AbortOnDropHandle<T> {
++    fn drop(&mut self) {
++        if let Some(handle) = &self.handle {
++            handle.abort();
++        }
++    }
++}
++
++#[cfg(target_arch = "wasm32")]
++impl<T> std::future::Future for AbortOnDropHandle<T> {
++    type Output = Result<T, tokio::task::JoinError>;
++
++    fn poll(
++        mut self: std::pin::Pin<&mut Self>,
++        cx: &mut std::task::Context<'_>,
++    ) -> std::task::Poll<Self::Output> {
++        let handle = self
++            .handle
++            .as_mut()
++            .expect("polled AbortOnDropHandle after completion");
++        let result = std::pin::Pin::new(handle).poll(cx);
++        if result.is_ready() {
++            self.handle.take();
++        }
++        result
++    }
++}
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/sst_iter.rs b/src/sst_iter.rs
+--- a/src/sst_iter.rs	2006-07-23 20:21:28
++++ b/src/sst_iter.rs	2026-08-17 18:35:42
+@@ -1,5 +1,6 @@
+ use async_trait::async_trait;
+ use bytes::Bytes;
++#[cfg(not(target_arch = "wasm32"))]
+ use log::error;
+ use slatedb_common::metrics::CounterFn;
+ use std::cmp::min;
+@@ -9,6 +10,9 @@
+ use std::sync::Arc;
+ use tokio::task::JoinHandle;
+ 
++#[cfg(not(target_arch = "wasm32"))]
++use crate::utils::panic_string;
++
+ use crate::block_iterator::DataBlockIterator;
+ use crate::bytes_range::BytesRange;
+ use crate::db_state::{SsTableId, SsTableView};
+@@ -23,7 +27,6 @@
+     partitioned_keyspace,
+     tablestore::TableStore,
+     types::RowEntry,
+-    utils::panic_string,
+ };
+ 
+ enum FetchTask {
+@@ -1069,6 +1072,7 @@
+ /// the task that is awaiting the fetch.
+ fn block_fetch_join_error(join_err: tokio::task::JoinError, sst_id: SsTableId) -> SlateDBError {
+     let task_name = format!("sst_block_fetch[{:?}]", sst_id);
++    #[cfg(not(target_arch = "wasm32"))]
+     match join_err.try_into_panic() {
+         Ok(panic_err) => {
+             error!(
+@@ -1079,6 +1083,12 @@
+             SlateDBError::BackgroundTaskPanic(task_name)
+         }
+         Err(_) => SlateDBError::BackgroundTaskCancelled(task_name),
++    }
++    #[cfg(target_arch = "wasm32")]
++    if join_err.is_panic() {
++        SlateDBError::BackgroundTaskPanic(task_name)
++    } else {
++        SlateDBError::BackgroundTaskCancelled(task_name)
+     }
+ }
+ 
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/utils.rs b/src/utils.rs
+--- a/src/utils.rs	2006-07-23 20:21:28
++++ b/src/utils.rs	2026-08-17 18:35:20
+@@ -83,7 +83,7 @@
+ /// result. If the task panics, the cleanup fn is called with Err(BackgroundTaskPanic).
+ pub(crate) fn spawn_bg_task<F, T, C>(
+     name: String,
+-    handle: &tokio::runtime::Handle,
++    handle: &crate::runtime::Handle,
+     cleanup_fn: C,
+     future: F,
+ ) -> tokio::task::JoinHandle<Result<T, SlateDBError>>
+@@ -562,8 +562,15 @@
+             if join_error.is_cancelled() {
+                 (Err(SlateDBError::BackgroundTaskCancelled(name)), None)
+             } else {
+-                let payload = join_error.into_panic();
+-                (Err(SlateDBError::BackgroundTaskPanic(name)), Some(payload))
++                #[cfg(not(target_arch = "wasm32"))]
++                {
++                    let payload = join_error.into_panic();
++                    (Err(SlateDBError::BackgroundTaskPanic(name)), Some(payload))
++                }
++                #[cfg(target_arch = "wasm32")]
++                {
++                    (Err(SlateDBError::BackgroundTaskPanic(name)), None)
++                }
+             }
+         }
+     }
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/wal_buffer.rs b/src/wal_buffer.rs
+--- a/src/wal_buffer.rs	2006-07-23 20:21:28
++++ b/src/wal_buffer.rs	2026-08-17 18:35:20
+@@ -7,6 +7,7 @@
+ use crate::db_state::SsTableId;
+ use crate::dispatcher::{MessageHandler, MessageHandlerExecutor, MessageTickerDef};
+ use crate::error::SlateDBError;
++use crate::runtime::Handle;
+ use crate::tablestore::TableStore;
+ use crate::types::RowEntry;
+ use crate::utils::SafeSender;
+@@ -18,7 +19,7 @@
+ use futures::{stream::BoxStream, FutureExt, StreamExt};
+ use log::{error, trace, warn};
+ use slatedb_common::metrics::MetricsRecorderHelper;
+-use tokio::{runtime::Handle, sync::oneshot};
++use tokio::sync::oneshot;
+ use tracing::instrument;
+ 
+ pub(crate) const WAL_BUFFER_TASK_NAME: &str = "wal_writer";
+diff -ruN --exclude=.cargo-ok --exclude=*.orig a/src/wal_replay.rs b/src/wal_replay.rs
+--- a/src/wal_replay.rs	2006-07-23 20:21:28
++++ b/src/wal_replay.rs	2026-08-17 18:35:20
+@@ -6,7 +6,9 @@
+ use crate::mem_table::WritableKVTable;
+ use crate::sst_iter::{SstIterator, SstIteratorOptions};
+ use crate::tablestore::TableStore;
++#[cfg(not(target_arch = "wasm32"))]
+ use crate::utils::panic_string;
++#[cfg(not(target_arch = "wasm32"))]
+ use log::error;
+ use std::collections::VecDeque;
+ use std::ops::Range;
+@@ -192,12 +194,17 @@
+                 Ok(Err(slate_err)) => return Err(slate_err),
+                 Err(join_err) => {
+                     let task_name = format!("wal_replay[{:?}]", self.wal_id_range);
++                    #[cfg(not(target_arch = "wasm32"))]
+                     if let Ok(panic_err) = join_err.try_into_panic() {
+                         error!(
+                             "wal_replay task panicked unexpectedly. [task_name={}, panic={}]",
+                             task_name,
+                             panic_string(&panic_err),
+                         );
++                        return Err(SlateDBError::BackgroundTaskPanic(task_name));
++                    }
++                    #[cfg(target_arch = "wasm32")]
++                    if join_err.is_panic() {
+                         return Err(SlateDBError::BackgroundTaskPanic(task_name));
+                     }
+                     return Err(SlateDBError::BackgroundTaskCancelled(task_name));

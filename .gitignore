@@ -1,7 +1,11 @@
 /build/
-/dist/
 /node_modules/
 /target/
+/vendor/
 /.wrangler/
 .dev.vars
-
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+.DS_Store
