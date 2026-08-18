@@ -3,50 +3,48 @@
 A working example of running SlateDB 0.15.0 inside a Cloudflare Durable Object,
 with R2 as its durable storage backend.
 
-This is a feasibility example, not a production-readiness claim. It demonstrates
-CRUD, concurrent writes, prefix scans, and recovery from R2 after reopening the
-database. It does not establish production throughput, latency, compaction
-capacity, memory use, or cost.
+The example validates CRUD, concurrent writes, prefix scans, and recovery from
+R2 after reopening the database. Production use requires workload-specific
+validation of throughput, tail latency, compaction capacity, memory use, CPU
+time, and R2 cost.
 
 ## Architecture
 
 Each logical database name maps deterministically to one `SlateDbObject`. That
 Durable Object opens and retains one SlateDB instance while active, providing
-the database's single-writer boundary. The outer Worker authenticates and routes
-requests; it does not hold database state.
+the database's single-writer boundary. The outer Worker handles authentication
+and routing; the Durable Object owns the database state.
 
 R2 is SlateDB's durable system of record. Every acknowledged write uses
 SlateDB's default durable write options, and each logical database gets its own
 R2 prefix.
 
-The Durable Object class uses Cloudflare's required SQLite-backed namespace,
-but this example does not store SlateDB data or cache entries in Durable Object
-storage. Losing or evicting the Durable Object's in-memory state does not lose
-acknowledged data.
+The class uses a SQLite-backed Durable Object namespace. SlateDB persists
+acknowledged data in R2, so Durable Object eviction only discards the active
+in-memory database handle.
 
-SlateDB's decoded block cache is disabled. Its filesystem-backed cache is not
-available in Workers, and its Moka cache currently reaches unsupported
-`std::time` behavior under workerd. Reads therefore use SlateDB's in-memory
-structures and R2.
+Reads use SlateDB's in-memory structures and R2. The Worker build disables
+decoded block caching because Foyer requires a filesystem and Moka reaches
+unsupported `std::time` behavior under workerd.
 
 ## Compatibility patches
 
-Published SlateDB 0.15.0 enables native filesystem, signal, and multithreaded
-Tokio behavior that does not compile for `wasm32-unknown-unknown`. The small,
-reviewable diffs in `patches/`:
+SlateDB 0.15.0's native filesystem, signal, and multithreaded Tokio dependencies
+do not compile for `wasm32-unknown-unknown`. The small, reviewable diffs in
+`patches/`:
 
 - select `tokio_with_wasm` on WebAssembly;
 - preserve native Tokio behavior on non-WASM targets;
 - disable filesystem-only cache and admin paths on WASM;
 - adapt runtime handles, task cancellation, clocks, and `Send`-bounded timers;
-- keep `object_store`'s existing buffered multipart writer on the same
-  Worker-compatible runtime.
+- select Worker-compatible scheduling for `object_store`'s buffered multipart
+  writer.
 
 `scripts/prepare-vendor.sh` downloads the published crate archives, verifies
 their checksums, applies the diffs, and creates the ignored `vendor/` directory.
 See [patches/README.md](patches/README.md) for provenance.
 
-The upstream context is [SlateDB issue #179](https://github.com/slatedb/slatedb/issues/179)
+Relevant upstream work: [SlateDB issue #179](https://github.com/slatedb/slatedb/issues/179)
 and [RFC PR #2031](https://github.com/slatedb/slatedb/pull/2031).
 
 ## API
@@ -82,10 +80,9 @@ Start the Worker:
 bun run dev
 ```
 
-Wrangler uses the primary `wrangler.jsonc` for both local development and
-deployment. Its custom build watches `src/` rather than generated Rust and
-vendor directories, so a second development config is unnecessary. Restart
-Wrangler after changing Cargo dependencies or compatibility patches.
+`wrangler.jsonc` is the source of truth for local development and deployment.
+Its custom build watches `src/`; restart Wrangler after changing Cargo
+dependencies or compatibility patches.
 
 In another terminal, run the end-to-end smoke test using the token from
 `.dev.vars`:
@@ -134,16 +131,14 @@ Workers plan.
 ## Known limits
 
 - Background work shares a single JavaScript event loop.
-- There is no decoded block cache or persistent local cache.
+- Reads have no decoded block cache or persistent local cache.
 - The R2 adapter currently materializes each requested object range before
-  returning it to SlateDB rather than exposing the binding's body stream.
-- The Worker-compatible multipart path compiles, but this repository does not
-  yet include a live recovery test for an SST above the writer's 10 MiB
-  multipart threshold.
-- The HTTP API is intentionally small and is not a general SlateDB service
-  interface.
-- Bearer-token comparison and error responses are test controls, not a
-  production authentication or public error-handling design.
+  returning it to SlateDB.
+- Multipart recovery above `object_store`'s 10 MiB writer threshold is not
+  covered by the live test suite.
+- The HTTP API is a test interface for the listed operations.
+- Authentication and error handling are suitable only for controlled
+  feasibility testing.
 
 See Cloudflare's [R2 consistency documentation](https://developers.cloudflare.com/r2/reference/consistency/),
 [Durable Object guidance](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/),
@@ -151,4 +146,4 @@ and [Workers WebAssembly constraints](https://developers.cloudflare.com/workers/
 
 ## License
 
-Licensed under the [Apache License 2.0](LICENSE), matching SlateDB.
+Licensed under the [Apache License 2.0](LICENSE).
