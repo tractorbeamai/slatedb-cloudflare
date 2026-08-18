@@ -70,11 +70,14 @@ Health checks are public. All `/v1` routes require
 | `POST` | `/v1/db/:db/admin/reopen` | — |
 | `POST` | `/v1/db/:db/admin/flush` | — |
 | `POST` | `/v1/db/:db/admin/cache/clear` | — |
+| `POST` | `/v1/db/:db/admin/benchmark/put` | `{"key":"k","value":"v"}` |
 | `GET` | `/v1/db/:db/stats` | — |
 
 The example API accepts UTF-8 keys and values. SlateDB itself stores bytes.
 The admin endpoints and cache-populated status exist only to exercise R2
-recovery and persistent cache behavior.
+recovery, persistent cache behavior, and release-style benchmarks. The
+benchmark write endpoint is the only route that acknowledges before remote
+durability; normal writes remain durability-acknowledged.
 
 ## Run locally
 
@@ -128,6 +131,7 @@ Environment variables configure the workload:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `BASE_URL` | `http://localhost:8787` | Local or deployed Worker URL |
+| `BENCH_PROFILE` | `default` | `default` or `slatedb-balanced` |
 | `BENCH_DATABASES` | `1` | Logical databases and Durable Objects |
 | `BENCH_RECORDS` | `1000` | Seed records per database |
 | `BENCH_VALUE_BYTES` | `1024` | UTF-8 value size |
@@ -149,6 +153,43 @@ Object, SlateDB, cache, and R2. They are not directly comparable to SlateDB's
 [native release suite](https://slatedb.io/docs/operations/benchmarks/), which
 uses a 120 GiB shared database, 64 clients, a
 five-minute warmup, and 15-minute workloads.
+
+The `slatedb-balanced` profile reproduces the release suite's 64 closed-loop
+clients, 400-byte values, scrambled-Zipfian 0.99 key selection, equal point-read
+and update mix, five-minute warmup, 15-minute measurement, non-blocking
+application writes, and final durability drain:
+
+```sh
+BASE_URL=https://slatedb-cloudflare-feasibility.<subdomain>.workers.dev \
+  PROBE_TOKEN=<token> \
+  BENCH_PROFILE=slatedb-balanced \
+  BENCH_OUTPUT=json \
+  bun run benchmark
+```
+
+The bounded profile seeds 10,000 records rather than SlateDB's 300 million
+record, roughly 120 GiB release dataset. Increase `BENCH_RECORDS` only after
+accounting for R2, Durable Object storage, and request costs.
+
+### Live balanced result
+
+The committed [August 17, 2026 result](benchmarks/live-slatedb-balanced-2026-08-17.json)
+ran Worker version `34aab9c5-d72c-42ec-9336-84f592a30c44` against the deployed
+Worker, Durable Object, and R2 bucket. It completed 548,648 measured operations
+with no errors:
+
+| API | avg/s | p1 | p50 | p99 | p99.9 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `get` | 304.55 | 52.46 ms | 90.20 ms | 308.26 ms | 493.87 ms |
+| `put` | 305.03 | 54.00 ms | 90.04 ms | 300.14 ms | 442.58 ms |
+
+SlateDB 0.15.0's official balanced result reports 6,215.61 gets/s and 6,210.21
+puts/s. Its direct in-process API has 0.048 ms median get latency and 0.013 ms
+median put latency. The deployed HTTP result therefore has about 20.4 times
+lower aggregate throughput. It includes public HTTPS, authentication, Worker
+routing, and Durable Object dispatch, which the direct benchmark does not.
+The much smaller working set also favors this proof, so this result demonstrates
+feasibility rather than performance parity.
 
 ## Checks
 

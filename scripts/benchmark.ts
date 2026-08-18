@@ -3,11 +3,17 @@ type Phase =
   | "cache-fill-read"
   | "warm-read"
   | "write"
-  | "mixed";
+  | "mixed"
+  | "balanced-get"
+  | "balanced-put"
+  | "durability-drain";
+
+type Profile = "default" | "slatedb-balanced";
 
 type Config = {
   baseUrl: string;
   token: string;
+  profile: Profile;
   databasePrefix: string;
   databases: number;
   records: number;
@@ -51,64 +57,133 @@ const headers = {
 
 const results: Result[] = [];
 
-results.push(
-  await runCounted("seed-write", config.databases * config.records, putSeed),
-);
-if (results.at(-1)?.errors) finish(results);
+if (config.profile === "slatedb-balanced") {
+  await runSlatedbBalanced();
+} else {
+  await runDefault();
+}
+finish(results);
 
-for (const database of databases) {
-  await admin(database, "flush");
-  await admin(database, "reopen");
-  await admin(database, "cache/clear");
+async function runDefault(): Promise<void> {
+  results.push(
+    await runCounted("seed-write", config.databases * config.records, putSeed),
+  );
+  if (results.at(-1)?.errors) finish(results);
+
+  await prepareSeededDatabases();
+
+  results.push(
+    await runCounted(
+      "cache-fill-read",
+      config.databases * config.records,
+      getSeed,
+    ),
+  );
+  if (results.at(-1)?.errors) finish(results);
+
+  for (const database of databases) {
+    const status = await requestJson<{ cache_populated: boolean }>(
+      `/v1/db/${database}/stats`,
+    );
+    if (!status.cache_populated) {
+      throw new Error(`cache did not populate for ${database}`);
+    }
+  }
+
+  results.push(await runTimed("warm-read", getRandomSeed));
+
+  let writeSequence = 0;
+  results.push(
+    await runTimed("write", async (client) => {
+      const sequence = writeSequence++;
+      const database = databases[sequence % databases.length];
+      await put(database, `write-${client}-${sequence}`);
+    }),
+  );
+
+  results.push(
+    await runTimed("mixed", async (client, random) => {
+      if (random() < 0.5) {
+        await getRandomSeed(client, random);
+        return;
+      }
+      const sequence = writeSequence++;
+      const database = databases[sequence % databases.length];
+      await put(database, `mixed-${client}-${sequence}`);
+    }),
+  );
 }
 
-results.push(
-  await runCounted(
-    "cache-fill-read",
-    config.databases * config.records,
-    getSeed,
-  ),
-);
-if (results.at(-1)?.errors) finish(results);
-
-for (const database of databases) {
-  const status = await requestJson<{ cache_populated: boolean }>(
-    `/v1/db/${database}/stats`,
+async function runSlatedbBalanced(): Promise<void> {
+  results.push(
+    await runCounted(
+      "seed-write",
+      config.databases * config.records,
+      putBenchmarkSeed,
+    ),
   );
-  if (!status.cache_populated) {
-    throw new Error(`cache did not populate for ${database}`);
+  if (results.at(-1)?.errors) finish(results);
+  await prepareSeededDatabases();
+
+  const selectRecord = scrambledZipfianSampler(config.records, 0.99);
+  const operation = async (
+    _client: number,
+    random: () => number,
+  ): Promise<"get" | "put"> => {
+    const database = databases[Math.floor(random() * databases.length)];
+    const key = seedKey(selectRecord(random));
+    if (random() < 0.5) {
+      await get(database, key);
+      return "get";
+    }
+    await benchmarkPut(database, key);
+    return "put";
+  };
+
+  const warmup = await runBalancedFor(config.warmupSeconds * 1_000, operation);
+  const warmupError = warmup.find((entry) => entry.error)?.error;
+  if (warmupError) throw new Error(`balanced warmup failed: ${warmupError}`);
+
+  const started = performance.now();
+  const samples = await runBalancedFor(config.durationSeconds * 1_000, operation);
+  const elapsed = performance.now() - started;
+  results.push(
+    summarize(
+      "balanced-get",
+      samples.filter((entry) => entry.operation === "get"),
+      elapsed,
+    ),
+    summarize(
+      "balanced-put",
+      samples.filter((entry) => entry.operation === "put"),
+      elapsed,
+    ),
+  );
+  results.push(
+    await runCounted("durability-drain", databases.length, async (index) => {
+      await admin(databases[index], "flush");
+    }),
+  );
+}
+
+async function prepareSeededDatabases(): Promise<void> {
+  for (const database of databases) {
+    await admin(database, "flush");
+    await admin(database, "reopen");
+    await admin(database, "cache/clear");
   }
 }
-
-results.push(await runTimed("warm-read", getRandomSeed));
-
-let writeSequence = 0;
-results.push(
-  await runTimed("write", async (client) => {
-    const sequence = writeSequence++;
-    const database = databases[sequence % databases.length];
-    await put(database, `write-${client}-${sequence}`);
-  }),
-);
-
-results.push(
-  await runTimed("mixed", async (client, random) => {
-    if (random() < 0.5) {
-      await getRandomSeed(client, random);
-      return;
-    }
-    const sequence = writeSequence++;
-    const database = databases[sequence % databases.length];
-    await put(database, `mixed-${client}-${sequence}`);
-  }),
-);
-
-finish(results);
 
 async function putSeed(index: number): Promise<void> {
   const databaseIndex = index % databases.length;
   const record = Math.floor(index / databases.length);
   await put(databases[databaseIndex], seedKey(record));
+}
+
+async function putBenchmarkSeed(index: number): Promise<void> {
+  const databaseIndex = index % databases.length;
+  const record = Math.floor(index / databases.length);
+  await benchmarkPut(databases[databaseIndex], seedKey(record));
 }
 
 async function getSeed(index: number): Promise<void> {
@@ -128,6 +203,13 @@ async function getRandomSeed(
 
 async function put(database: string, key: string): Promise<void> {
   await request(`/v1/db/${database}/put`, {
+    method: "POST",
+    body: JSON.stringify({ key, value }),
+  });
+}
+
+async function benchmarkPut(database: string, key: string): Promise<void> {
+  await request(`/v1/db/${database}/admin/benchmark/put`, {
     method: "POST",
     body: JSON.stringify({ key, value }),
   });
@@ -210,6 +292,30 @@ async function runFor(
   return samples;
 }
 
+async function runBalancedFor(
+  durationMs: number,
+  operation: (
+    client: number,
+    random: () => number,
+  ) => Promise<"get" | "put">,
+): Promise<Array<Sample & { operation: "get" | "put" }>> {
+  const deadline = performance.now() + durationMs;
+  const samples: Array<Sample & { operation: "get" | "put" }> = [];
+  await Promise.all(
+    Array.from({ length: config.concurrency }, async (_, client) => {
+      const random = randomGenerator(client + 1);
+      while (performance.now() < deadline) {
+        let operationName: "get" | "put" = "get";
+        const result = await sample(async () => {
+          operationName = await operation(client, random);
+        });
+        samples.push({ ...result, operation: operationName });
+      }
+    }),
+  );
+  return samples;
+}
+
 async function sample(operation: () => Promise<void>): Promise<Sample> {
   const started = performance.now();
   try {
@@ -268,7 +374,48 @@ function seedKey(record: number): string {
   return `seed-${record.toString().padStart(8, "0")}`;
 }
 
+function scrambledZipfianSampler(
+  count: number,
+  theta: number,
+): (random: () => number) => number {
+  const cumulative = new Float64Array(count);
+  const scrambled = new Uint32Array(count);
+  let total = 0;
+  for (let rank = 0; rank < count; rank++) {
+    total += 1 / Math.pow(rank + 1, theta);
+    cumulative[rank] = total;
+    scrambled[rank] = Number(fnv64(BigInt(rank)) % BigInt(count));
+  }
+  return (random) => {
+    const target = random() * total;
+    let low = 0;
+    let high = cumulative.length - 1;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (cumulative[middle] < target) low = middle + 1;
+      else high = middle;
+    }
+    return scrambled[low];
+  };
+}
+
+function fnv64(input: bigint): bigint {
+  let value = input;
+  let hash = 14_695_981_039_346_656_037n;
+  for (let byte = 0; byte < 8; byte++) {
+    hash ^= value & 0xffn;
+    hash = BigInt.asUintN(64, hash * 1_099_511_628_211n);
+    value >>= 8n;
+  }
+  return hash;
+}
+
 function readConfig(): Config {
+  const profile = Bun.env.BENCH_PROFILE ?? "default";
+  if (profile !== "default" && profile !== "slatedb-balanced") {
+    throw new Error("BENCH_PROFILE must be default or slatedb-balanced");
+  }
+  const balanced = profile === "slatedb-balanced";
   const databasePrefix =
     Bun.env.BENCH_DATABASE_PREFIX ?? `bench-${Date.now()}`;
   if (!/^[A-Za-z0-9_-]+$/.test(databasePrefix) || databasePrefix.length > 110) {
@@ -281,13 +428,24 @@ function readConfig(): Config {
   return {
     baseUrl: (Bun.env.BASE_URL ?? "http://localhost:8787").replace(/\/$/, ""),
     token: required("PROBE_TOKEN"),
+    profile,
     databasePrefix,
     databases: integer("BENCH_DATABASES", 1, 1, 64),
-    records: integer("BENCH_RECORDS", 1_000, 1, 1_000_000),
-    valueBytes: integer("BENCH_VALUE_BYTES", 1_024, 1, 1_000_000),
-    concurrency: integer("BENCH_CONCURRENCY", 8, 1, 256),
-    durationSeconds: integer("BENCH_DURATION_SECONDS", 15, 1, 300),
-    warmupSeconds: integer("BENCH_WARMUP_SECONDS", 3, 0, 60),
+    records: integer("BENCH_RECORDS", balanced ? 10_000 : 1_000, 1, 1_000_000),
+    valueBytes: integer("BENCH_VALUE_BYTES", balanced ? 400 : 1_024, 1, 1_000_000),
+    concurrency: integer("BENCH_CONCURRENCY", balanced ? 64 : 8, 1, 256),
+    durationSeconds: integer(
+      "BENCH_DURATION_SECONDS",
+      balanced ? 900 : 15,
+      1,
+      3_600,
+    ),
+    warmupSeconds: integer(
+      "BENCH_WARMUP_SECONDS",
+      balanced ? 300 : 3,
+      0,
+      3_600,
+    ),
     output,
   };
 }

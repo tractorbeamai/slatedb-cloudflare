@@ -1,0 +1,75 @@
+{
+  "generatedAt": "2026-08-18T01:52:43.386Z",
+  "workerVersion": "34aab9c5-d72c-42ec-9336-84f592a30c44",
+  "config": {
+    "baseUrl": "https://slatedb-cloudflare-feasibility.tractorbeamai.workers.dev",
+    "token": "<redacted>",
+    "profile": "slatedb-balanced",
+    "databasePrefix": "live-slatedb-balanced-20260817",
+    "databases": 1,
+    "records": 10000,
+    "valueBytes": 400,
+    "concurrency": 64,
+    "durationSeconds": 900,
+    "warmupSeconds": 300,
+    "output": "json"
+  },
+  "results": [
+    {
+      "phase": "seed-write",
+      "operations": 10000,
+      "errors": 0,
+      "seconds": 13.46,
+      "operationsPerSecond": 742.99,
+      "p1Ms": 30.47,
+      "p50Ms": 68.84,
+      "p95Ms": 96.07,
+      "p99Ms": 179.53,
+      "p999Ms": 2366.3,
+      "maxMs": 2369.19,
+      "errorSamples": []
+    },
+    {
+      "phase": "balanced-get",
+      "operations": 274110,
+      "errors": 0,
+      "seconds": 900.04,
+      "operationsPerSecond": 304.55,
+      "p1Ms": 52.46,
+      "p50Ms": 90.2,
+      "p95Ms": 207.39,
+      "p99Ms": 308.26,
+      "p999Ms": 493.87,
+      "maxMs": 1288.48,
+      "errorSamples": []
+    },
+    {
+      "phase": "balanced-put",
+      "operations": 274538,
+      "errors": 0,
+      "seconds": 900.04,
+      "operationsPerSecond": 305.03,
+      "p1Ms": 54,
+      "p50Ms": 90.04,
+      "p95Ms": 203.94,
+      "p99Ms": 300.14,
+      "p999Ms": 442.58,
+      "maxMs": 656.8,
+      "errorSamples": []
+    },
+    {
+      "phase": "durability-drain",
+      "operations": 1,
+      "errors": 0,
+      "seconds": 0.76,
+      "operationsPerSecond": 1.32,
+      "p1Ms": 758.56,
+      "p50Ms": 758.56,
+      "p95Ms": 758.56,
+      "p99Ms": 758.56,
+      "p999Ms": 758.56,
+      "maxMs": 758.56,
+      "errorSamples": []
+    }
+  ]
+}

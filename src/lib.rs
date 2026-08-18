@@ -4,7 +4,7 @@ use futures::lock::Mutex;
 use serde::{Deserialize, Serialize};
 use slatedb::Db;
 use slatedb::cached_object_store::CachedObjectStore;
-use slatedb::config::{FlushOptions, FlushType};
+use slatedb::config::{FlushOptions, FlushType, PutOptions, WriteOptions};
 use slatedb::object_store::ObjectStore;
 use slatedb::object_store::prefix::PrefixStore;
 use worker::*;
@@ -184,6 +184,23 @@ impl SlateDbObject {
                 self.database(database)
                     .await?
                     .put(body.key.as_bytes(), body.value.as_bytes())
+                    .await
+                    .map_err(slatedb_error)?;
+                Response::from_json(&OkResponse { ok: true })
+            }
+            (Method::Post, ["admin", "benchmark", "put"]) => {
+                let body: PutRequest = req.json().await?;
+                self.database(database)
+                    .await?
+                    .put_with_options(
+                        body.key.as_bytes(),
+                        body.value.as_bytes(),
+                        &PutOptions::default(),
+                        &WriteOptions {
+                            await_durable: false,
+                            ..WriteOptions::default()
+                        },
+                    )
                     .await
                     .map_err(slatedb_error)?;
                 Response::from_json(&OkResponse { ok: true })
