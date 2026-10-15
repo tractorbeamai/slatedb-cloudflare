@@ -9,32 +9,32 @@
       "class_name": "SlateDbContainer",
       "image": "./Dockerfile",
       "max_instances": 10,
-      "instance_type": "basic"
-    }
+      "instance_type": "basic",
+    },
   ],
   "durable_objects": {
     "bindings": [
       {
         "name": "SLATEDB_CONTAINERS",
-        "class_name": "SlateDbContainer"
-      }
-    ]
+        "class_name": "SlateDbContainer",
+      },
+    ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["SlateDbContainer"]
-    }
+      "new_sqlite_classes": ["SlateDbContainer"],
+    },
   ],
   "r2_buckets": [
     {
       "binding": "SLATEDB_BUCKET",
-      "bucket_name": "slatedb-cloudflare-container"
-    }
+      "bucket_name": "slatedb-cloudflare-container",
+    },
   ],
   "observability": {
     "enabled": true,
     "logs": { "enabled": true, "head_sampling_rate": 1 },
-    "traces": { "enabled": true, "head_sampling_rate": 1 }
-  }
+    "traces": { "enabled": true, "head_sampling_rate": 1 },
+  },
 }

@@ -128,6 +128,7 @@ async function handleR2(request: Request, bucket: R2Bucket): Promise<Response> {
 export class SlateDbContainer extends Container<Env> {
   defaultPort = 8080;
   sleepAfter = "10m";
+  // oxlint-disable-next-line anti-slop/no-known-value-widening -- must match the base class `envVars` type.
   envVars: Record<string, string> = {
     RUST_LOG: "slatedb_cloudflare_container=info,slatedb=info",
   };
