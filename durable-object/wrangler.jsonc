@@ -5,47 +5,47 @@
   "compatibility_date": "2026-08-17",
   "build": {
     "command": "bash scripts/prepare-vendor.sh && worker-build --release",
-    "watch_dir": "src"
+    "watch_dir": "src",
   },
   "rules": [
     {
       "globs": ["**/*.wasm"],
       "type": "CompiledWasm",
-      "fallthrough": false
-    }
+      "fallthrough": false,
+    },
   ],
   "durable_objects": {
     "bindings": [
       {
         "name": "SLATEDB_OBJECTS",
-        "class_name": "SlateDbObject"
-      }
-    ]
+        "class_name": "SlateDbObject",
+      },
+    ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["SlateDbObject"]
-    }
+      "new_sqlite_classes": ["SlateDbObject"],
+    },
   ],
   "r2_buckets": [
     {
       "binding": "SLATEDB_BUCKET",
-      "bucket_name": "slatedb-cloudflare-feasibility"
-    }
+      "bucket_name": "slatedb-cloudflare-feasibility",
+    },
   ],
   "limits": {
-    "cpu_ms": 30000
+    "cpu_ms": 30000,
   },
   "observability": {
     "enabled": true,
     "logs": {
       "enabled": true,
-      "head_sampling_rate": 0.1
+      "head_sampling_rate": 0.1,
     },
     "traces": {
       "enabled": true,
-      "head_sampling_rate": 1
-    }
-  }
+      "head_sampling_rate": 1,
+    },
+  },
 }

@@ -1,0 +1,6 @@
+packages:
+  - durable-object
+  - container
+allowBuilds:
+  esbuild: true
+  workerd: true

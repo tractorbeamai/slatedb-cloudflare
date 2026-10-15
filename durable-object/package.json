@@ -1,8 +1,8 @@
 {
   "name": "@slatedb-cloudflare/durable-object",
   "version": "0.1.0",
-  "license": "Apache-2.0",
   "private": true,
+  "license": "Apache-2.0",
   "scripts": {
     "benchmark": "bun ../scripts/benchmark.ts",
     "build": "wrangler deploy --dry-run",

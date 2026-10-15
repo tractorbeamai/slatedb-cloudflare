@@ -1,3 +1,4 @@
+/* oxlint-disable no-await-in-loop -- benchmark phases run sequentially on purpose so measurements do not overlap. */
 type Phase =
   | "seed-write"
   | "cache-fill-read"
@@ -36,6 +37,7 @@ type DatabaseStatus = {
   slatedb: Array<{
     name: string;
     labels: Array<[string, string]>;
+    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- decoded metrics JSON of unknown shape.
     value: Record<string, unknown>;
   }>;
 };
@@ -103,28 +105,18 @@ if (config.profile === "slatedb-balanced") {
 await finish(results);
 
 async function runDefault(): Promise<void> {
-  results.push(
-    await runCounted("seed-write", config.databases * config.records, putSeed),
-  );
+  results.push(await runCounted("seed-write", config.databases * config.records, putSeed));
   if (results.at(-1)?.errors) await finish(results);
 
   await prepareSeededDatabases();
   await captureTelemetry("beforeWarmup");
 
-  results.push(
-    await runCounted(
-      "cache-fill-read",
-      config.databases * config.records,
-      getSeed,
-    ),
-  );
+  results.push(await runCounted("cache-fill-read", config.databases * config.records, getSeed));
   if (results.at(-1)?.errors) await finish(results);
   await captureTelemetry("afterCacheFill");
 
   for (const database of databases) {
-    const status = await requestJson<{ cache_populated: boolean }>(
-      `/v1/db/${database}/stats`,
-    );
+    const status = await requestJson<{ cache_populated: boolean }>(`/v1/db/${database}/stats`);
     if (!status.cache_populated) {
       throw new Error(`cache did not populate for ${database}`);
     }
@@ -171,10 +163,7 @@ async function runSlatedbBalanced(): Promise<void> {
   await captureTelemetry("afterWarmup");
 
   const started = performance.now();
-  const measurements = await runBalancedFor(
-    config.durationSeconds * 1_000,
-    selectRecord,
-  );
+  const measurements = await runBalancedFor(config.durationSeconds * 1_000, selectRecord);
   const elapsed = performance.now() - started;
   console.error("measurement complete");
   results.push(
@@ -210,9 +199,7 @@ function assertNoObjectReset(before: string, after: string): void {
 
 async function captureTelemetry(checkpoint: string): Promise<void> {
   const statuses = await Promise.all(
-    databases.map((database) =>
-      requestJson<DatabaseStatus>(`/v1/db/${database}/stats`),
-    ),
+    databases.map((database) => requestJson<DatabaseStatus>(`/v1/db/${database}/stats`)),
   );
   telemetry[checkpoint] = statuses.map((status) => ({
     ...status,
@@ -234,21 +221,13 @@ function reportMetric(metric: DatabaseStatus["slatedb"][number]): boolean {
 async function seedBalanced(): Promise<Result> {
   const started = performance.now();
   const measurements = emptyEmbeddedMeasurements();
-  for (const databaseMeasurements of await Promise.all(
-    databases.map(seedBalancedDatabase),
-  )) {
+  for (const databaseMeasurements of await Promise.all(databases.map(seedBalancedDatabase))) {
     mergeEmbedded(measurements, databaseMeasurements);
   }
-  return summarizeEmbedded(
-    "seed-write",
-    measurements,
-    performance.now() - started,
-  );
+  return summarizeEmbedded("seed-write", measurements, performance.now() - started);
 }
 
-async function seedBalancedDatabase(
-  database: string,
-): Promise<EmbeddedMeasurements> {
+async function seedBalancedDatabase(database: string): Promise<EmbeddedMeasurements> {
   const measurements = emptyEmbeddedMeasurements();
   let next = 0;
   while (next < config.records) {
@@ -285,10 +264,7 @@ async function getSeed(index: number): Promise<void> {
   await get(databases[databaseIndex], seedKey(record));
 }
 
-async function getRandomSeed(
-  _client: number,
-  random: () => number,
-): Promise<void> {
+async function getRandomSeed(_client: number, random: () => number): Promise<void> {
   const database = databases[Math.floor(random() * databases.length)];
   const record = Math.floor(random() * config.records);
   await get(database, seedKey(record));
@@ -405,10 +381,7 @@ async function runBalancedFor(
       const databaseIndex = Math.floor(random() * databases.length);
       clientsByDatabase[databaseIndex].push(
         Array.from({ length: config.batchSize }, () => ({
-          operation:
-            random() < config.readPercent / 100
-              ? ("get" as const)
-              : ("put" as const),
+          operation: random() < config.readPercent / 100 ? ("get" as const) : ("put" as const),
           key: seedKey(selectRecord(random)),
         })),
       );
@@ -465,12 +438,8 @@ function summarize(phase: Phase, samples: Sample[], elapsedMs: number): Result {
     p95Ms: latency(0.95),
     p99Ms: latency(0.99),
     p999Ms: latency(0.999),
-    maxMs:
-      unmeasurableOperations > 0 ? null : round(successful.at(-1) ?? 0),
-    errorSamples: [...new Set(errors.flatMap((entry) => entry.error ?? []))].slice(
-      0,
-      5,
-    ),
+    maxMs: unmeasurableOperations > 0 ? null : round(successful.at(-1) ?? 0),
+    errorSamples: [...new Set(errors.flatMap((entry) => entry.error ?? []))].slice(0, 5),
   };
 }
 
@@ -522,10 +491,7 @@ function emptyEmbeddedMeasurements(): EmbeddedMeasurements {
   };
 }
 
-function mergeEmbedded(
-  target: EmbeddedMeasurements,
-  source: EmbeddedMeasurements,
-): void {
+function mergeEmbedded(target: EmbeddedMeasurements, source: EmbeddedMeasurements): void {
   target.operations += source.operations;
   target.unmeasurableOperations += source.unmeasurableOperations;
   target.measurableLatencyNs.push(...source.measurableLatencyNs);
@@ -550,10 +516,7 @@ function seedKey(record: number): string {
   return `seed-${record.toString().padStart(8, "0")}`;
 }
 
-function scrambledZipfianSampler(
-  count: number,
-  theta: number,
-): (random: () => number) => number {
+function scrambledZipfianSampler(count: number, theta: number): (random: () => number) => number {
   const cumulative = new Float64Array(count);
   const scrambled = new Uint32Array(count);
   let total = 0;
@@ -592,8 +555,7 @@ function readConfig(): Config {
     throw new Error("BENCH_PROFILE must be default or slatedb-balanced");
   }
   const balanced = profile === "slatedb-balanced";
-  const databasePrefix =
-    Bun.env.BENCH_DATABASE_PREFIX ?? `bench-${Date.now()}`;
+  const databasePrefix = Bun.env.BENCH_DATABASE_PREFIX ?? `bench-${Date.now()}`;
   if (!/^[A-Za-z0-9_-]+$/.test(databasePrefix) || databasePrefix.length > 110) {
     throw new Error("BENCH_DATABASE_PREFIX must be a short database-safe name");
   }
@@ -610,18 +572,8 @@ function readConfig(): Config {
     records: integer("BENCH_RECORDS", balanced ? 10_000 : 1_000, 1, 1_000_000),
     valueBytes: integer("BENCH_VALUE_BYTES", balanced ? 400 : 1_024, 1, 1_000_000),
     concurrency: integer("BENCH_CONCURRENCY", balanced ? 64 : 8, 1, 256),
-    durationSeconds: integer(
-      "BENCH_DURATION_SECONDS",
-      balanced ? 900 : 15,
-      1,
-      3_600,
-    ),
-    warmupSeconds: integer(
-      "BENCH_WARMUP_SECONDS",
-      balanced ? 300 : 3,
-      0,
-      3_600,
-    ),
+    durationSeconds: integer("BENCH_DURATION_SECONDS", balanced ? 900 : 15, 1, 3_600),
+    warmupSeconds: integer("BENCH_WARMUP_SECONDS", balanced ? 300 : 3, 0, 3_600),
     batchSize: integer("BENCH_BATCH_SIZE", balanced ? 32 : 1, 1, 512),
     readPercent: integer("BENCH_READ_PERCENT", 50, 0, 100),
     output,
@@ -635,12 +587,7 @@ function required(name: string): string {
   return value;
 }
 
-function integer(
-  name: string,
-  fallback: number,
-  minimum: number,
-  maximum: number,
-): number {
+function integer(name: string, fallback: number, minimum: number, maximum: number): number {
   const value = Number(Bun.env[name] ?? fallback);
   if (!Number.isInteger(value) || value < minimum || value > maximum) {
     throw new Error(`${name} must be an integer from ${minimum} to ${maximum}`);
@@ -675,9 +622,7 @@ function costReport() {
   const runtime = benchmarkRuntime();
   const phases = Object.fromEntries(
     costPhases().flatMap(([name, before, after]) =>
-      telemetry[before] && telemetry[after]
-        ? [[name, phaseCost(before, after)]]
-        : [],
+      telemetry[before] && telemetry[after] ? [[name, phaseCost(before, after)]] : [],
     ),
   );
   return {
@@ -688,8 +633,7 @@ function costReport() {
       "Cloudflare paid-plan list prices before account-wide included usage and billing-unit rounding",
     sources: {
       workers: "https://developers.cloudflare.com/workers/platform/pricing/",
-      durableObjects:
-        "https://developers.cloudflare.com/durable-objects/platform/pricing/",
+      durableObjects: "https://developers.cloudflare.com/durable-objects/platform/pricing/",
       containers: "https://developers.cloudflare.com/containers/pricing/",
       r2: "https://developers.cloudflare.com/r2/pricing/",
     },
@@ -732,8 +676,7 @@ function phaseCost(before: string, after: string) {
   const rowsWritten = counter(adapter, "doKvRowsWritten");
   const workerRequestUsd = requests * (0.3 / 1_000_000);
   const durableObjectRequestUsd = requests * (0.15 / 1_000_000);
-  const r2OperationUsd =
-    r2ClassA * (4.5 / 1_000_000) + r2ClassB * (0.36 / 1_000_000);
+  const r2OperationUsd = r2ClassA * (4.5 / 1_000_000) + r2ClassB * (0.36 / 1_000_000);
   const durableObjectStorageOperationUsd =
     rowsRead * (0.001 / 1_000_000) + rowsWritten * (1 / 1_000_000);
   return {
@@ -778,10 +721,7 @@ function phaseCost(before: string, after: string) {
   };
 }
 
-function adapterDelta(
-  before: DatabaseStatus[],
-  after: DatabaseStatus[],
-): Record<string, number> {
+function adapterDelta(before: DatabaseStatus[], after: DatabaseStatus[]): Record<string, number> {
   const delta: Record<string, number> = {};
   for (let index = 0; index < after.length; index++) {
     for (const [name, value] of Object.entries(after[index].adapter)) {
@@ -792,6 +732,7 @@ function adapterDelta(
       delta[name] = (delta[name] ?? 0) + value - previous;
     }
   }
+  // oxlint-disable-next-line anti-slop/no-known-value-widening -- keyed by arbitrary counter names.
   return delta;
 }
 
@@ -800,10 +741,7 @@ function counter(counters: Record<string, number>, name: string): number {
 }
 
 function totalStorageBytes(statuses: DatabaseStatus[]): number {
-  return statuses.reduce(
-    (total, status) => total + status.cache_storage_bytes,
-    0,
-  );
+  return statuses.reduce((total, status) => total + status.cache_storage_bytes, 0);
 }
 
 function usd(value: number): number {
@@ -843,9 +781,7 @@ async function finish(phaseResults: Result[]): Promise<never> {
   if (config.output === "json") {
     console.log(json);
   } else {
-    console.table(
-      phaseResults.map(({ errorSamples: _errorSamples, ...result }) => result),
-    );
+    console.table(phaseResults.map(({ errorSamples: _errorSamples, ...result }) => result));
     for (const result of phaseResults) {
       if (result.errorSamples.length) {
         console.error(`${result.phase} errors:`, result.errorSamples);
@@ -865,3 +801,5 @@ async function finish(phaseResults: Result[]): Promise<never> {
   }
   process.exit(phaseResults.some((result) => result.errors > 0) ? 1 : 0);
 }
+
+export {};
