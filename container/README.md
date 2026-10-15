@@ -26,7 +26,7 @@ Container egress bodies reach the Worker as unknown-length streams, while R2 bin
 
 ## Setup
 
-Requirements are pnpm, Bun (runs the benchmark script), Rust, Docker or a compatible engine, a paid Cloudflare Workers plan. Create the bucket and configure the API token from this directory:
+Requirements are pnpm, Rust, Docker or a compatible engine, a paid Cloudflare Workers plan. Create the bucket and configure the API token from this directory:
 
 ```sh
 pnpm install

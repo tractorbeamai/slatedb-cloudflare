@@ -1,4 +1,8 @@
 /* oxlint-disable no-await-in-loop -- benchmark phases run sequentially on purpose so measurements do not overlap. */
+import { writeFile } from "node:fs/promises";
+
+import { test } from "vite-plus/test";
+
 type Phase =
   | "seed-write"
   | "cache-fill-read"
@@ -96,13 +100,19 @@ const telemetry: Record<string, DatabaseStatus[]> = {};
 const clientRequests: Record<string, number> = {};
 let clientRequestCount = 0;
 
-await captureTelemetry("runStart");
-if (config.profile === "slatedb-balanced") {
-  await runSlatedbBalanced();
-} else {
-  await runDefault();
-}
-await finish(results);
+// The suite is one long closed-loop run that does its own timing, so Vitest
+// executes it exactly once: no warmup iterations, no repeat sampling.
+test("slatedb-cloudflare", async ({ bench }) => {
+  await bench(config.profile, async () => {
+    await captureTelemetry("runStart");
+    if (config.profile === "slatedb-balanced") {
+      await runSlatedbBalanced();
+    } else {
+      await runDefault();
+    }
+    await finish(results);
+  }).run({ iterations: 1, time: 0, warmupIterations: 0, warmupTime: 0, throws: true });
+});
 
 async function runDefault(): Promise<void> {
   results.push(await runCounted("seed-write", config.databases * config.records, putSeed));
@@ -550,21 +560,21 @@ function fnv64(input: bigint): bigint {
 }
 
 function readConfig(): Config {
-  const profile = Bun.env.BENCH_PROFILE ?? "default";
+  const profile = process.env.BENCH_PROFILE ?? "default";
   if (profile !== "default" && profile !== "slatedb-balanced") {
     throw new Error("BENCH_PROFILE must be default or slatedb-balanced");
   }
   const balanced = profile === "slatedb-balanced";
-  const databasePrefix = Bun.env.BENCH_DATABASE_PREFIX ?? `bench-${Date.now()}`;
+  const databasePrefix = process.env.BENCH_DATABASE_PREFIX ?? `bench-${Date.now()}`;
   if (!/^[A-Za-z0-9_-]+$/.test(databasePrefix) || databasePrefix.length > 110) {
     throw new Error("BENCH_DATABASE_PREFIX must be a short database-safe name");
   }
-  const output = Bun.env.BENCH_OUTPUT ?? "table";
+  const output = process.env.BENCH_OUTPUT ?? "table";
   if (output !== "table" && output !== "json") {
     throw new Error("BENCH_OUTPUT must be table or json");
   }
   return {
-    baseUrl: (Bun.env.BASE_URL ?? "http://localhost:8787").replace(/\/$/, ""),
+    baseUrl: (process.env.BENCH_BASE_URL ?? "http://localhost:8787").replace(/\/$/, ""),
     token: required("PROBE_TOKEN"),
     profile,
     databasePrefix,
@@ -577,18 +587,18 @@ function readConfig(): Config {
     batchSize: integer("BENCH_BATCH_SIZE", balanced ? 32 : 1, 1, 512),
     readPercent: integer("BENCH_READ_PERCENT", 50, 0, 100),
     output,
-    outputFile: Bun.env.BENCH_OUTPUT_FILE,
+    outputFile: process.env.BENCH_OUTPUT_FILE,
   };
 }
 
 function required(name: string): string {
-  const value = Bun.env[name];
+  const value = process.env[name];
   if (!value) throw new Error(`${name} is required`);
   return value;
 }
 
 function integer(name: string, fallback: number, minimum: number, maximum: number): number {
-  const value = Number(Bun.env[name] ?? fallback);
+  const value = Number(process.env[name] ?? fallback);
   if (!Number.isInteger(value) || value < minimum || value > maximum) {
     throw new Error(`${name} must be an integer from ${minimum} to ${maximum}`);
   }
@@ -748,7 +758,7 @@ function usd(value: number): number {
   return Number(value.toFixed(9));
 }
 
-async function finish(phaseResults: Result[]): Promise<never> {
+async function finish(phaseResults: Result[]): Promise<void> {
   const report = {
     generatedAt: new Date().toISOString(),
     config: { ...config, token: "<redacted>" },
@@ -776,7 +786,7 @@ async function finish(phaseResults: Result[]): Promise<never> {
   };
   const json = JSON.stringify(report, null, 2);
   if (config.outputFile) {
-    await Bun.write(config.outputFile, `${json}\n`);
+    await writeFile(config.outputFile, `${json}\n`);
   }
   if (config.output === "json") {
     console.log(json);
@@ -799,7 +809,7 @@ async function finish(phaseResults: Result[]): Promise<never> {
       })),
     );
   }
-  process.exit(phaseResults.some((result) => result.errors > 0) ? 1 : 0);
+  if (phaseResults.some((result) => result.errors > 0)) {
+    throw new Error("benchmark phases reported errors");
+  }
 }
-
-export {};

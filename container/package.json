@@ -4,7 +4,7 @@
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
-    "benchmark": "bun ../scripts/benchmark.ts",
+    "benchmark": "pnpm --workspace-root run benchmark",
     "build": "wrangler deploy --dry-run",
     "check": "cargo check --locked && cargo test --locked && cargo clippy --all-targets --locked -- -D warnings && wrangler types worker-configuration.d.ts --include-runtime false --check && tsc --noEmit && wrangler deploy --dry-run",
     "deploy": "wrangler deploy",

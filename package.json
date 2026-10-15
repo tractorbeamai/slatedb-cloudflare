@@ -8,12 +8,13 @@
     "format": "vp fmt && pnpm --filter ./durable-object format && pnpm --filter ./container format",
     "format:check": "vp fmt --check && pnpm --filter ./durable-object format:check && pnpm --filter ./container format:check",
     "lint": "vp lint",
-    "lint:fix": "vp lint --fix"
+    "lint:fix": "vp lint --fix",
+    "benchmark": "vp test bench --run"
   },
   "devDependencies": {
     "@tractorbeam/oxfmt-config": "0.2.0",
     "@tractorbeam/oxlint-config": "0.5.0",
-    "@types/bun": "^1.4.3",
+    "@types/node": "^22.20.5",
     "vite-plus": "1.0.0"
   },
   "packageManager": "pnpm@12.11.2"

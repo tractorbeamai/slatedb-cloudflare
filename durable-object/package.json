@@ -4,7 +4,7 @@
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
-    "benchmark": "bun ../scripts/benchmark.ts",
+    "benchmark": "pnpm --workspace-root run benchmark",
     "build": "wrangler deploy --dry-run",
     "check": "bash scripts/prepare-vendor.sh && cargo check --target wasm32-unknown-unknown && cargo test && cargo clippy --all-targets --no-deps -- -D warnings && wrangler deploy --dry-run",
     "deploy": "wrangler deploy",
