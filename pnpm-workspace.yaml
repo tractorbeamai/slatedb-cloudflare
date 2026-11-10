@@ -1,9 +1,9 @@
-# Cloudflare publishes these packages almost daily.
-minimumReleaseAgeExclude:
-  - "@cloudflare/*"
-  - wrangler
-  - miniflare
-  - workerd
+# Pinned with its integrity, so the release-age gate does not hold it back.
+configDependencies:
+  "@tractorbeam/pnpm-config": 0.1.0+sha512-sEhkz+X3Oh1QNMdQhWFcXxKiftENPts0c5Q9mlTgWOsOaaqyWytMdLAD3G1JRXsZz9MSx0/W6D0bMXJohS9Zdw==
+# Adds the Cloudflare packages to minimumReleaseAgeExclude.
+pnpmfile:
+  - node_modules/.pnpm-config/@tractorbeam/pnpm-config/pnpmfile.mjs
 packages:
   - durable-object
   - container
