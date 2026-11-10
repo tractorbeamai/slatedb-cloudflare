@@ -1,3 +1,9 @@
+# Cloudflare publishes these packages almost daily.
+minimumReleaseAgeExclude:
+  - "@cloudflare/*"
+  - wrangler
+  - miniflare
+  - workerd
 packages:
   - durable-object
   - container
