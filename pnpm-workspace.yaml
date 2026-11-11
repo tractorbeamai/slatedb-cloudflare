@@ -1,10 +1,10 @@
-# Adds the Cloudflare packages to minimumReleaseAgeExclude. Pinned with its
-# integrity, so the release-age gate does not hold it back.
 configDependencies:
-  "@tractorbeam/pnpm-plugin-tractorbeam-defaults": 0.1.0+sha512-COV/ZRzrGO2ou/vWSg9OYBRVy9A8hshakc4x3+UGz3sL49F0N8syRnC92N7dzz0ZdqOYDN/WenlXWrN1Ri+Egg==
+  "@tractorbeam/pnpm-plugin-tractorbeam-defaults": latest
 packages:
   - durable-object
   - container
 allowBuilds:
   esbuild: true
   workerd: true
+minimumReleaseAgeExclude:
+  - "@tractorbeam/*"

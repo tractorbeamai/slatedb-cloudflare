@@ -6,7 +6,7 @@ importers:
   .:
     configDependencies:
       '@tractorbeam/pnpm-plugin-tractorbeam-defaults':
-        specifier: 0.1.0
+        specifier: latest
         version: 0.1.0
     packageManagerDependencies:
       pnpm:
