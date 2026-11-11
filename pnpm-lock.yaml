@@ -5,7 +5,7 @@ importers:
 
   .:
     configDependencies:
-      '@tractorbeam/pnpm-config':
+      '@tractorbeam/pnpm-plugin-tractorbeam-defaults':
         specifier: 0.1.0
         version: 0.1.0
     packageManagerDependencies:
@@ -92,8 +92,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@tractorbeam/pnpm-config@0.1.0':
-    resolution: {integrity: sha512-sEhkz+X3Oh1QNMdQhWFcXxKiftENPts0c5Q9mlTgWOsOaaqyWytMdLAD3G1JRXsZz9MSx0/W6D0bMXJohS9Zdw==}
+  '@tractorbeam/pnpm-plugin-tractorbeam-defaults@0.1.0':
+    resolution: {integrity: sha512-COV/ZRzrGO2ou/vWSg9OYBRVy9A8hshakc4x3+UGz3sL49F0N8syRnC92N7dzz0ZdqOYDN/WenlXWrN1Ri+Egg==}
 
   pnpm@12.13.0:
     resolution: {integrity: sha512-HlVxm/JugJ3OXFCE/euqZO+z2pA4rl1oqfimgxHxpFhByMO3ajcpjDtm9rzIBAmpt/M8eKcWij6Q+2Wl2CNa5A==}
@@ -144,7 +144,7 @@ snapshots:
   '@pnpm/exe.win32-x64@12.13.0':
     optional: true
 
-  '@tractorbeam/pnpm-config@0.1.0': {}
+  '@tractorbeam/pnpm-plugin-tractorbeam-defaults@0.1.0': {}
 
   pnpm@12.13.0:
     optionalDependencies:
