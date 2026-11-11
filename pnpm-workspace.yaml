@@ -4,7 +4,6 @@ packages:
   - durable-object
   - container
 allowBuilds:
-  esbuild: true
   workerd: true
 minimumReleaseAgeExclude:
-  - "@tractorbeam/*"
+  - "@tractorbeam/pnpm-plugin-tractorbeam-defaults"

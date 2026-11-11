@@ -7,7 +7,7 @@ importers:
     configDependencies:
       '@tractorbeam/pnpm-plugin-tractorbeam-defaults':
         specifier: latest
-        version: 0.1.0
+        version: 0.2.0
     packageManagerDependencies:
       pnpm:
         specifier: 12.13.0
@@ -92,8 +92,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@tractorbeam/pnpm-plugin-tractorbeam-defaults@0.1.0':
-    resolution: {integrity: sha512-COV/ZRzrGO2ou/vWSg9OYBRVy9A8hshakc4x3+UGz3sL49F0N8syRnC92N7dzz0ZdqOYDN/WenlXWrN1Ri+Egg==}
+  '@tractorbeam/pnpm-plugin-tractorbeam-defaults@0.2.0':
+    resolution: {integrity: sha512-tLeFssym3j/gyOQzoUDJ0JkguXkk3M5mzzLoNz/LE2MHEeiTL9cgrQtecObI9qL5cbzIGhwmttHtST3HQZtI1g==}
 
   pnpm@12.13.0:
     resolution: {integrity: sha512-HlVxm/JugJ3OXFCE/euqZO+z2pA4rl1oqfimgxHxpFhByMO3ajcpjDtm9rzIBAmpt/M8eKcWij6Q+2Wl2CNa5A==}
@@ -144,7 +144,7 @@ snapshots:
   '@pnpm/exe.win32-x64@12.13.0':
     optional: true
 
-  '@tractorbeam/pnpm-plugin-tractorbeam-defaults@0.1.0': {}
+  '@tractorbeam/pnpm-plugin-tractorbeam-defaults@0.2.0': {}
 
   pnpm@12.13.0:
     optionalDependencies:
@@ -170,7 +170,7 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-pnpmfileChecksum: sha256-vwfen7vUli7oXtZZcMVS8ZzIymcWml43WIc9x40eV50=
+pnpmfileChecksum: sha256-grU81mymM4CXmEKc1oCbvWk1tvgU3flHU5dg6Ja+/+Q=
 
 importers:
 
